@@ -1,5 +1,5 @@
 {
-  "name": "@crawlops/shared",
+  "name": "@crawlops/evaluation",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,8 +14,9 @@
     "lint": "echo \"(lint placeholder)\""
   },
   "dependencies": {
-    "pino": "^9.6.0",
-    "zod": "^3.24.1"
+    "@crawlops/shared": "workspace:*",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

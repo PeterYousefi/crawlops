@@ -1,5 +1,5 @@
 {
-  "name": "@crawlops/shared",
+  "name": "@crawlops/orchestrator",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,13 +11,17 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "verify": "tsx scripts/verify-loop.ts",
     "lint": "echo \"(lint placeholder)\""
   },
   "dependencies": {
-    "pino": "^9.6.0",
-    "zod": "^3.24.1"
+    "@crawlops/database": "workspace:*",
+    "@crawlops/evaluation": "workspace:*",
+    "@crawlops/firecrawl": "workspace:*",
+    "@crawlops/shared": "workspace:*"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
   }

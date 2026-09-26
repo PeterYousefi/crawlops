@@ -71,8 +71,9 @@ docs/                 # ARCHITECTURE, EVALS, API, DEPLOYMENT, ROADMAP
 | Firecrawl PoC against real API | **blocked on `FIRECRAWL_API_KEY`** |
 | PostgreSQL persistence layer (Prisma schema, client, BlobStore) | implemented, typechecked |
 | Persistence proof against real Postgres | **blocked on Docker install** |
-| Deterministic evaluator | planned |
-| Orchestrator (full loop) | planned |
+| Deterministic evaluator (7 checks, rules-based status) | implemented, unit-tested |
+| Orchestrator (full loop + bounded retries) | implemented, unit-tested (mocked) |
+| Full core-loop proof against real Firecrawl + Postgres | **blocked on `FIRECRAWL_API_KEY` + Docker** |
 | Fastify API | planned |
 | Web starter | planned |
 | OpenAI evaluator (optional) | planned |

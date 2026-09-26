@@ -52,6 +52,6 @@ Metrics are always computed from stored execution records. We never fabricate th
 
 | Layer | State |
 | --- | --- |
-| Deterministic checks | planned |
-| LLM grounding (OpenAI provider) | planned |
+| Deterministic checks | implemented, unit-tested |
+| LLM grounding (OpenAI provider) | planned (factory falls back to deterministic) |
 | Metric aggregation | planned |

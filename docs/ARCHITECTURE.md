@@ -60,6 +60,8 @@ Structured JSON logging (pino) with trace identifiers (`requestId`, `runId`, `at
 | --- | --- |
 | `packages/shared` (contracts, errors, logging, config) | implemented |
 | `packages/firecrawl` (adapter, mock, error mapping) | implemented, unit-tested |
-| Real Firecrawl PoC | blocked on `FIRECRAWL_API_KEY` |
-| `packages/database`, `evaluation`, `orchestrator` | planned |
+| `packages/database` (Prisma, client, BlobStore) | implemented, typechecked |
+| `packages/evaluation` (deterministic evaluator) | implemented, unit-tested |
+| `packages/orchestrator` (loop, retries, strategies) | implemented, unit-tested |
+| Real Firecrawl PoC / full loop | blocked on `FIRECRAWL_API_KEY` (+ Docker for DB) |
 | `apps/api`, `apps/web` | planned |

@@ -13,8 +13,10 @@ Development is phased. We prove the core loop before building upward.
 - [ ] Run migration + store a real Firecrawl result as a Run + read it back — **blocked on Docker install**
 
 ## Phase 0.75 — Evaluation proof
-- [ ] `packages/evaluation`: deterministic evaluator
-- [ ] `packages/orchestrator`: full TASK→FIRECRAWL→RESULT→EVAL→DB loop
+- [x] `packages/evaluation`: deterministic evaluator (timeout, source count, non-empty, URL validity, duplicates, schema) + factory with OpenAI fallback
+- [x] `packages/orchestrator`: full TASK→FIRECRAWL→RESULT→EVAL→DB loop, bounded retries, JobRunner + Strategy abstractions
+- [x] Unit tests: success, retry-then-fail, no-retry-on-auth (mocked)
+- [ ] Run `verify-loop` against real Firecrawl + Postgres — **blocked on `FIRECRAWL_API_KEY` + Docker**
 
 ## Phase 1 — Local MVP app
 - [ ] `apps/api`: Fastify endpoints + `/health`
