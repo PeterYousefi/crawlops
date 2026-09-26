@@ -2,27 +2,27 @@
 
 Development is phased. We prove the core loop before building upward.
 
-## Phase 0 — Firecrawl proof of concept
+## Phase 0 — Firecrawl proof of concept ✅
 - [x] `packages/shared`: contracts, error taxonomy, logging, config
 - [x] `packages/firecrawl`: v2 adapter, mock, typed error mapping, unit tests
-- [ ] Real search + scrape against the live Firecrawl API — **blocked on `FIRECRAWL_API_KEY`**
+- [x] Real search + scrape against the live Firecrawl API (search 3 sources ~1.2s; scrape example.com 200; invalid key → AUTH_ERROR)
 
-## Phase 0.5 — Persistence proof
+## Phase 0.5 — Persistence proof ✅
 - [x] `packages/database`: full Prisma schema, client singleton, BlobStore, seed, verify script
-- [x] docker-compose for local PostgreSQL
-- [ ] Run migration + store a real Firecrawl result as a Run + read it back — **blocked on Docker install**
+- [x] docker-compose for local PostgreSQL (host port 5433)
+- [x] Migration applied; real Firecrawl result stored as a Run and read back
 
-## Phase 0.75 — Evaluation proof
+## Phase 0.75 — Evaluation proof ✅
 - [x] `packages/evaluation`: deterministic evaluator (timeout, source count, non-empty, URL validity, duplicates, schema) + factory with OpenAI fallback
 - [x] `packages/orchestrator`: full TASK→FIRECRAWL→RESULT→EVAL→DB loop, bounded retries, JobRunner + Strategy abstractions
 - [x] Unit tests: success, retry-then-fail, no-retry-on-auth (mocked)
-- [ ] Run `verify-loop` against real Firecrawl + Postgres — **blocked on `FIRECRAWL_API_KEY` + Docker**
+- [x] `verify-loop` run against real Firecrawl + Postgres (5 sources, 5/5 checks, SUCCESS)
 
-## Phase 1 — Local MVP app
+## Phase 1 — Local MVP app ✅
 - [x] `apps/api`: Fastify endpoints (evaluations, runs) + `/health` with dependency status + SSRF guard + graceful degradation
 - [x] `apps/web`: typed API client + hooks, Overview/Evaluations/Create/Run-Details pages (light theme, minimal)
 - [x] Unit tests (Firecrawl mocked): 24 passing across the workspace
-- [ ] Run a demo evaluation for real end-to-end and view the report — **blocked on `FIRECRAWL_API_KEY` + Docker**
+- [x] Demo evaluation run for real end-to-end via API + frontend; success and failure (INVALID_SCHEMA) paths both verified with real data
 
 ## Phase 2 — Reliability
 - [ ] Bounded retries with strategy fallback

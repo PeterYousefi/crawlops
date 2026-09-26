@@ -15,7 +15,9 @@ services:
       POSTGRES_PASSWORD: crawlops
       POSTGRES_DB: crawlops
     ports:
-      - '5432:5432'
+      # Host port 5433 to avoid clashing with a local/Homebrew PostgreSQL that
+      # may already occupy 5432. Container still listens on 5432 internally.
+      - '5433:5432'
     volumes:
       - crawlops_pgdata:/var/lib/postgresql/data
     healthcheck:

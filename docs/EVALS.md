@@ -52,6 +52,19 @@ Metrics are always computed from stored execution records. We never fabricate th
 
 | Layer | State |
 | --- | --- |
-| Deterministic checks | implemented, unit-tested |
+| Deterministic checks | tested locally end-to-end (real Firecrawl data) |
 | LLM grounding (OpenAI provider) | planned (factory falls back to deterministic) |
 | Metric aggregation | planned |
+
+## Verified examples (real executions)
+
+**Pass:** task "Find Firecrawl official homepage…" (SEARCH) returned 3 real
+sources; all 5 deterministic checks passed (timeout, source count, non-empty
+output, URL validity, no duplicates) → score 100%, recommendation `pass`,
+status `SUCCESS`.
+
+**Fail:** the same style of task with an expected schema requiring a missing
+field produced `SUCCESS` on retrieval but a failing critical `schema_validation`
+check → `missingFields=["nonexistentField"]`, recommendation `fail`, run status
+`FAILED`, `errorCategory=INVALID_SCHEMA`. The real sources retrieved are still
+recorded, so the failure is fully explainable.

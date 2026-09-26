@@ -36,9 +36,9 @@ See `packages/shared/src/contracts.ts` for the authoritative schemas:
 
 Contracts are **implemented** in the shared package. The health, evaluations
 (create/list/get/run), and runs (report/attempts/sources/evaluation) endpoints
-are **implemented** in `apps/api` and tested (health + graceful degradation).
-User-supplied URLs pass an **SSRF guard** before use. Metrics and suites remain
-in later phases.
+are **tested locally end-to-end** in `apps/api` against the real Firecrawl API
+and a local PostgreSQL. User-supplied URLs pass an **SSRF guard** before use.
+Metrics and suites remain in later phases.
 
 Run the API locally:
 
@@ -46,3 +46,22 @@ Run the API locally:
 pnpm --filter @crawlops/api dev   # http://localhost:4000
 curl http://localhost:4000/api/health
 ```
+
+### Verified request flow (real data)
+
+```bash
+# 1) create
+curl -s -X POST localhost:4000/api/evaluations -H 'Content-Type: application/json' \
+  -d '{"name":"Firecrawl homepage","taskPrompt":"Find Firecrawl official homepage and return its title and description.","strategy":"SEARCH","minSources":1}'
+# -> 201 { data: { id: "…" } }
+
+# 2) run  ->  202 { data: { status: "SUCCESS", durationMs: 835, attemptCount: 1 } }
+curl -s -X POST localhost:4000/api/evaluations/<id>/run
+
+# 3) read  ->  full report with 3 real sources + 5 passed checks
+curl -s localhost:4000/api/runs/<runId>
+curl -s localhost:4000/api/runs/<runId>/sources
+curl -s localhost:4000/api/runs/<runId>/evaluation
+```
+
+The API responses were confirmed to match the stored PostgreSQL rows exactly.

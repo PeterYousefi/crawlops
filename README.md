@@ -67,17 +67,31 @@ docs/                 # ARCHITECTURE, EVALS, API, DEPLOYMENT, ROADMAP
 
 | Capability | State |
 | --- | --- |
-| Firecrawl v2 client (search/scrape) + typed error taxonomy | implemented, unit-tested (mocked) |
-| Firecrawl PoC against real API | **blocked on `FIRECRAWL_API_KEY`** |
-| PostgreSQL persistence layer (Prisma schema, client, BlobStore) | implemented, typechecked |
-| Persistence proof against real Postgres | **blocked on Docker install** |
+| Firecrawl v2 client (search/scrape) + typed error taxonomy | **tested against real Firecrawl API** |
+| PostgreSQL persistence layer (Prisma schema, client, BlobStore) | **tested with local PostgreSQL** |
 | Deterministic evaluator (7 checks, rules-based status) | implemented, unit-tested |
-| Orchestrator (full loop + bounded retries) | implemented, unit-tested (mocked) |
-| Full core-loop proof against real Firecrawl + Postgres | **blocked on `FIRECRAWL_API_KEY` + Docker** |
-| Fastify API (health, evaluations, runs) + SSRF guard | implemented, tested (health + degradation) |
-| Web starter (typed client, hooks, Overview/Evaluations/Create/Run pages) | implemented, builds |
+| Orchestrator (full loop + bounded retries) | **tested locally end-to-end** |
+| Fastify API (health, evaluations, runs) + SSRF guard | **tested locally end-to-end** |
+| Web starter (typed client, hooks, Overview/Evaluations/Create/Run pages) | **tested locally against real API** |
 | OpenAI evaluator (optional) | planned |
 | Azure deployment | planned |
+
+### Verified end-to-end (real dependencies)
+
+The complete loop was run locally against the **real Firecrawl API** and a **local PostgreSQL** (Docker):
+
+```
+Task:     "Find Firecrawl official homepage and return its title and description."
+Strategy: SEARCH
+Result:   SUCCESS in 835 ms, 1 attempt, 1 Firecrawl call
+Sources:  3 real results, top = https://www.firecrawl.dev/
+Eval:     deterministic, 5/5 checks passed, score 100%, recommendation "pass"
+Stored:   Run + ExecutionAttempt + 3 Source rows + EvaluationResult in PostgreSQL
+```
+
+Failure handling is real too: an evaluation with an expected schema requiring a
+field the output lacks yields `status=FAILED`, `errorCategory=INVALID_SCHEMA`,
+and `missingFields=["…"]`, while still recording the real sources retrieved.
 
 ## Local setup
 
@@ -85,8 +99,23 @@ Requires Node 20+, pnpm, and (for persistence) Docker.
 
 ```bash
 pnpm install
-cp .env.example .env   # then fill in FIRECRAWL_API_KEY
+cp .env.example .env                  # then fill in FIRECRAWL_API_KEY
+
+# start local PostgreSQL (host port 5433 to avoid clashing with a local pg)
+docker compose -f infrastructure/docker/docker-compose.yml up -d
+
+# apply migrations (DATABASE_URL must be set in the shell for the Prisma CLI)
+export DATABASE_URL="postgresql://crawlops:crawlops@localhost:5433/crawlops?schema=public"
+pnpm --filter @crawlops/database exec prisma migrate deploy
+
+# run API + web (in separate terminals)
+pnpm --filter @crawlops/api dev       # http://localhost:4000
+pnpm --filter @crawlops/web dev       # http://localhost:5173 (proxies /api -> 4000)
 ```
+
+> **Port note:** the Docker PostgreSQL is published on host port **5433** because
+> port 5432 is commonly occupied by a local/Homebrew PostgreSQL. The container
+> still listens on 5432 internally.
 
 ### Environment configuration
 
