@@ -19,10 +19,10 @@ Development is phased. We prove the core loop before building upward.
 - [ ] Run `verify-loop` against real Firecrawl + Postgres — **blocked on `FIRECRAWL_API_KEY` + Docker**
 
 ## Phase 1 — Local MVP app
-- [ ] `apps/api`: Fastify endpoints + `/health`
-- [ ] `apps/web`: typed hooks, Create-Evaluation and Run-Details pages
-- [ ] Demo evaluation, run for real, view report
-- [ ] Unit tests (Firecrawl mocked)
+- [x] `apps/api`: Fastify endpoints (evaluations, runs) + `/health` with dependency status + SSRF guard + graceful degradation
+- [x] `apps/web`: typed API client + hooks, Overview/Evaluations/Create/Run-Details pages (light theme, minimal)
+- [x] Unit tests (Firecrawl mocked): 24 passing across the workspace
+- [ ] Run a demo evaluation for real end-to-end and view the report — **blocked on `FIRECRAWL_API_KEY` + Docker**
 
 ## Phase 2 — Reliability
 - [ ] Bounded retries with strategy fallback

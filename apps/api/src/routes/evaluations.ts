@@ -1,0 +1,122 @@
+/**
+ * Evaluation routes: create/list/get evaluations and trigger a run.
+ *
+ * Input is validated with the shared Zod schema. User URLs are SSRF-checked.
+ * Running a run is executed in-process via the orchestrator (MVP JobRunner).
+ */
+
+import type { FastifyInstance } from 'fastify';
+import {
+  createEvaluationSchema,
+  ok,
+  ExecutionStrategy,
+  RunStatus,
+  CrawlOpsError,
+  FailureCategory,
+} from '@crawlops/shared';
+import type { AppContext } from '../context.js';
+import { serializeEvaluation, serializeRun } from '../serializers.js';
+import { validateUserUrls } from '../security/url-guard.js';
+
+const DEMO_USER_EMAIL = 'demo@crawlops.local';
+
+async function getOrCreateDemoUser(ctx: AppContext): Promise<string> {
+  const user = await ctx.prisma.user.upsert({
+    where: { email: DEMO_USER_EMAIL },
+    update: {},
+    create: { email: DEMO_USER_EMAIL },
+  });
+  return user.id;
+}
+
+export async function registerEvaluationRoutes(
+  app: FastifyInstance,
+  ctx: AppContext,
+): Promise<void> {
+  // Create evaluation
+  app.post('/api/evaluations', async (request, reply) => {
+    const parsed = createEvaluationSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: { code: 'VALIDATION_ERROR', message: parsed.error.message },
+      });
+    }
+    const input = parsed.data;
+
+    const urlCheck = validateUserUrls(input.startingUrls);
+    if (!urlCheck.ok) {
+      return reply.code(400).send({
+        error: { code: 'UNSAFE_URL', message: urlCheck.reason ?? 'unsafe URL' },
+      });
+    }
+
+    const userId = await getOrCreateDemoUser(ctx);
+    const evaluation = await ctx.prisma.evaluation.create({
+      data: {
+        userId,
+        name: input.name,
+        taskPrompt: input.taskPrompt,
+        startingUrls: input.startingUrls,
+        strategy: input.strategy,
+        expectedSchema: (input.expectedSchema ?? undefined) as never,
+        maxRetries: input.maxRetries,
+        maxFirecrawlCalls: input.maxFirecrawlCalls,
+        timeoutMs: input.timeoutMs,
+        minSources: input.minSources,
+      },
+    });
+    return reply.code(201).send(ok(serializeEvaluation(evaluation)));
+  });
+
+  // List evaluations
+  app.get('/api/evaluations', async () => {
+    const rows = await ctx.prisma.evaluation.findMany({ orderBy: { createdAt: 'desc' } });
+    return ok(rows.map(serializeEvaluation));
+  });
+
+  // Get one evaluation
+  app.get<{ Params: { id: string } }>('/api/evaluations/:id', async (request, reply) => {
+    const row = await ctx.prisma.evaluation.findUnique({ where: { id: request.params.id } });
+    if (!row) {
+      return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Evaluation not found' } });
+    }
+    return ok(serializeEvaluation(row));
+  });
+
+  // Run an evaluation
+  app.post<{ Params: { id: string } }>('/api/evaluations/:id/run', async (request, reply) => {
+    const evaluation = await ctx.prisma.evaluation.findUnique({ where: { id: request.params.id } });
+    if (!evaluation) {
+      return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Evaluation not found' } });
+    }
+    if (!ctx.orchestrator) {
+      return reply.code(503).send({
+        error: {
+          code: 'FIRECRAWL_UNAVAILABLE',
+          category: FailureCategory.AUTH_ERROR,
+          message: 'FIRECRAWL_API_KEY is not configured; cannot execute runs.',
+        },
+      });
+    }
+
+    // Create the run as PENDING, then execute in-process (MVP JobRunner).
+    const run = await ctx.prisma.run.create({
+      data: {
+        evaluationId: evaluation.id,
+        status: RunStatus.PENDING,
+        strategy: (evaluation.strategy as ExecutionStrategy) ?? ExecutionStrategy.SEARCH,
+      },
+    });
+
+    try {
+      await ctx.orchestrator.executeRun(run.id);
+    } catch (error) {
+      const mapped = error instanceof CrawlOpsError ? error : null;
+      ctx.logger.error({ err: mapped?.message ?? String(error), runId: run.id }, 'run execution error');
+      // The run row still reflects failure state; return it.
+    }
+
+    const finalRun = await ctx.prisma.run.findUniqueOrThrow({ where: { id: run.id } });
+    return reply.code(202).send(ok(serializeRun(finalRun)));
+  });
+}

@@ -34,4 +34,15 @@ See `packages/shared/src/contracts.ts` for the authoritative schemas:
 
 ## Status
 
-Contracts are **implemented** in the shared package. Endpoints are **planned** (built in Phase 1).
+Contracts are **implemented** in the shared package. The health, evaluations
+(create/list/get/run), and runs (report/attempts/sources/evaluation) endpoints
+are **implemented** in `apps/api` and tested (health + graceful degradation).
+User-supplied URLs pass an **SSRF guard** before use. Metrics and suites remain
+in later phases.
+
+Run the API locally:
+
+```bash
+pnpm --filter @crawlops/api dev   # http://localhost:4000
+curl http://localhost:4000/api/health
+```

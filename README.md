@@ -74,8 +74,8 @@ docs/                 # ARCHITECTURE, EVALS, API, DEPLOYMENT, ROADMAP
 | Deterministic evaluator (7 checks, rules-based status) | implemented, unit-tested |
 | Orchestrator (full loop + bounded retries) | implemented, unit-tested (mocked) |
 | Full core-loop proof against real Firecrawl + Postgres | **blocked on `FIRECRAWL_API_KEY` + Docker** |
-| Fastify API | planned |
-| Web starter | planned |
+| Fastify API (health, evaluations, runs) + SSRF guard | implemented, tested (health + degradation) |
+| Web starter (typed client, hooks, Overview/Evaluations/Create/Run pages) | implemented, builds |
 | OpenAI evaluator (optional) | planned |
 | Azure deployment | planned |
 
