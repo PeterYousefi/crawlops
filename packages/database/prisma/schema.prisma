@@ -1,0 +1,200 @@
+// CrawlOps database schema.
+//
+// Design notes:
+// - Large scraped content is NOT stored in relational rows. `Source.contentRef`
+//   and `ExecutionAttempt.rawResultRef` hold a BlobStore pointer instead.
+// - Enums mirror the const unions in @crawlops/shared/enums.ts.
+// - Flexible/optional structured data uses JSONB (expectedSchema, checks, etc.).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExecutionStrategy {
+  AUTO
+  SEARCH
+  SCRAPE
+  CRAWL
+  AGENT
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum AttemptStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum FailureCategory {
+  TIMEOUT
+  RATE_LIMIT
+  FIRECRAWL_ERROR
+  NO_RESULTS
+  INVALID_SCHEMA
+  INSUFFICIENT_SOURCES
+  PARSING_ERROR
+  EVALUATOR_FAILURE
+  NETWORK_FAILURE
+  AUTH_ERROR
+  UNKNOWN
+}
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  createdAt   DateTime     @default(now())
+  evaluations Evaluation[]
+}
+
+model Evaluation {
+  id                String            @id @default(cuid())
+  userId            String
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  taskPrompt        String
+  startingUrls      String[]          @default([])
+  strategy          ExecutionStrategy @default(SEARCH)
+  expectedSchema    Json?
+  evaluatorConfig   Json?
+  maxRetries        Int               @default(2)
+  maxFirecrawlCalls Int               @default(5)
+  timeoutMs         Int               @default(30000)
+  minSources        Int               @default(1)
+  createdAt         DateTime          @default(now())
+
+  runs             Run[]
+  suiteEvaluations SuiteEvaluation[]
+
+  @@index([userId])
+}
+
+model Run {
+  id            String           @id @default(cuid())
+  evaluationId  String
+  evaluation    Evaluation       @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  status        RunStatus        @default(PENDING)
+  strategy      ExecutionStrategy
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  durationMs    Int?
+  attemptCount  Int              @default(0)
+  errorCategory FailureCategory?
+  // Normalized final output (structured JSON or wrapped text). Small by design.
+  finalOutput   Json?
+  createdAt     DateTime         @default(now())
+
+  attempts         ExecutionAttempt[]
+  sources          Source[]
+  evaluationResult EvaluationResult?
+
+  @@index([evaluationId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ExecutionAttempt {
+  id                 String           @id @default(cuid())
+  runId              String
+  run                Run              @relation(fields: [runId], references: [id], onDelete: Cascade)
+  attemptNumber      Int
+  strategy           ExecutionStrategy
+  status             AttemptStatus    @default(RUNNING)
+  errorCategory      FailureCategory?
+  errorMessage       String?
+  startedAt          DateTime         @default(now())
+  finishedAt         DateTime?
+  durationMs         Int?
+  firecrawlCallCount Int              @default(0)
+  // BlobStore pointer to the raw provider payload (may be large). Not the data.
+  rawResultRef       String?
+
+  sources Source[]
+
+  @@unique([runId, attemptNumber])
+  @@index([runId])
+}
+
+model Source {
+  id          String            @id @default(cuid())
+  runId       String
+  run         Run               @relation(fields: [runId], references: [id], onDelete: Cascade)
+  attemptId   String?
+  attempt     ExecutionAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+  url         String
+  title       String?
+  description String?
+  rank        Int?
+  // BlobStore pointer to scraped page content, when retrieved.
+  contentRef  String?
+  retrievedAt DateTime          @default(now())
+
+  @@index([runId])
+}
+
+model EvaluationResult {
+  id                String   @id @default(cuid())
+  runId             String   @unique
+  run               Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  overallScore      Float
+  status            RunStatus
+  recommendation    String
+  // Array of deterministic check results: { id, label, passed, critical, detail }
+  checks            Json
+  supportedClaims   Int?
+  unsupportedClaims Int?
+  missingFields     String[] @default([])
+  reasoningSummary  String
+  evaluatorProvider String
+  createdAt         DateTime @default(now())
+}
+
+model MetricSnapshot {
+  id              String   @id @default(cuid())
+  scope           String // "global" | "evaluation"
+  scopeId         String? // evaluationId when scope = "evaluation"
+  windowStart     DateTime
+  windowEnd       DateTime
+  totalRuns       Int
+  successCount    Int
+  partialCount    Int
+  failureCount    Int
+  avgLatencyMs    Float?
+  medianLatencyMs Float?
+  p95LatencyMs    Float?
+  schemaValidPct  Float?
+  groundedPct     Float?
+  createdAt       DateTime @default(now())
+
+  @@index([scope, scopeId])
+}
+
+model EvaluationSuite {
+  id          String            @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime          @default(now())
+  evaluations SuiteEvaluation[]
+}
+
+model SuiteEvaluation {
+  id           String          @id @default(cuid())
+  suiteId      String
+  suite        EvaluationSuite @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  evaluationId String
+  evaluation   Evaluation      @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  order        Int             @default(0)
+
+  @@unique([suiteId, evaluationId])
+}

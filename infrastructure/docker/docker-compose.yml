@@ -1,0 +1,28 @@
+# Local development infrastructure for CrawlOps.
+# Only PostgreSQL is required for the MVP. No paid/cloud services.
+#
+# Usage:
+#   docker compose -f infrastructure/docker/docker-compose.yml up -d
+#   docker compose -f infrastructure/docker/docker-compose.yml down
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crawlops-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crawlops
+      POSTGRES_PASSWORD: crawlops
+      POSTGRES_DB: crawlops
+    ports:
+      - '5432:5432'
+    volumes:
+      - crawlops_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U crawlops -d crawlops']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  crawlops_pgdata:

@@ -8,9 +8,9 @@ Development is phased. We prove the core loop before building upward.
 - [ ] Real search + scrape against the live Firecrawl API — **blocked on `FIRECRAWL_API_KEY`**
 
 ## Phase 0.5 — Persistence proof
-- [ ] `packages/database`: Prisma schema + `Run` model + migration
-- [ ] Local PostgreSQL via Docker — **blocked on Docker install**
-- [ ] Store a real Firecrawl result as a Run, read it back
+- [x] `packages/database`: full Prisma schema, client singleton, BlobStore, seed, verify script
+- [x] docker-compose for local PostgreSQL
+- [ ] Run migration + store a real Firecrawl result as a Run + read it back — **blocked on Docker install**
 
 ## Phase 0.75 — Evaluation proof
 - [ ] `packages/evaluation`: deterministic evaluator

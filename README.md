@@ -69,7 +69,8 @@ docs/                 # ARCHITECTURE, EVALS, API, DEPLOYMENT, ROADMAP
 | --- | --- |
 | Firecrawl v2 client (search/scrape) + typed error taxonomy | implemented, unit-tested (mocked) |
 | Firecrawl PoC against real API | **blocked on `FIRECRAWL_API_KEY`** |
-| PostgreSQL persistence layer | planned |
+| PostgreSQL persistence layer (Prisma schema, client, BlobStore) | implemented, typechecked |
+| Persistence proof against real Postgres | **blocked on Docker install** |
 | Deterministic evaluator | planned |
 | Orchestrator (full loop) | planned |
 | Fastify API | planned |
