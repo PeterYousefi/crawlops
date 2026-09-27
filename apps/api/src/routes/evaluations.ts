@@ -134,15 +134,38 @@ export async function registerEvaluationRoutes(
       throw error;
     }
 
+    // Execute in-process. The orchestrator persists attempt/source/result rows
+    // and records failure state on the run itself. A thrown error here is either
+    // a swallowed run failure (row reflects it) or a transient DB blip mid-run.
     try {
       await ctx.orchestrator.executeRun(run.id);
     } catch (error) {
+      if (isDbConnectivityError(error)) {
+        ctx.logger.error(
+          { err: error instanceof Error ? error.message : String(error), runId: run.id },
+          'run execution: database unavailable',
+        );
+        return reply.code(503).send(DB_UNAVAILABLE_RESPONSE);
+      }
       const mapped = error instanceof CrawlOpsError ? error : null;
       ctx.logger.error({ err: mapped?.message ?? String(error), runId: run.id }, 'run execution error');
-      // The run row still reflects failure state; return it.
+      // Non-DB error: the run row still reflects failure state; fall through.
     }
 
-    const finalRun = await ctx.prisma.run.findUniqueOrThrow({ where: { id: run.id } });
-    return reply.code(202).send(ok(serializeRun(finalRun)));
+    // Final fetch/serialize — guard the transient-DB case here too so it returns
+    // a structured 503 rather than a generic 500.
+    try {
+      const finalRun = await ctx.prisma.run.findUniqueOrThrow({ where: { id: run.id } });
+      return reply.code(202).send(ok(serializeRun(finalRun)));
+    } catch (error) {
+      if (isDbConnectivityError(error)) {
+        ctx.logger.error(
+          { err: error instanceof Error ? error.message : String(error), runId: run.id },
+          'run final fetch: database unavailable',
+        );
+        return reply.code(503).send(DB_UNAVAILABLE_RESPONSE);
+      }
+      throw error;
+    }
   });
 }
