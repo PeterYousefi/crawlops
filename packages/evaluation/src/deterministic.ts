@@ -28,6 +28,65 @@ const addFormats = ((addFormatsImport as unknown as { default?: AddFormatsFn }).
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
 
+/**
+ * Does this object look like a real JSON Schema (imposes constraints), rather
+ * than an example instance the user pasted?
+ */
+function looksLikeJsonSchema(obj: Record<string, unknown>): boolean {
+  return (
+    'type' in obj ||
+    'properties' in obj ||
+    'required' in obj ||
+    'items' in obj ||
+    'anyOf' in obj ||
+    'oneOf' in obj ||
+    'allOf' in obj ||
+    '$ref' in obj ||
+    'enum' in obj
+  );
+}
+
+/**
+ * Convert a pasted EXAMPLE object into a strict JSON Schema so validation is
+ * meaningful. Users frequently paste an example shape like
+ *   { "rockets": [ { "name": "string" } ], "comparison": "string" }
+ * which is NOT a JSON Schema — Ajv would treat it as unconstrained and pass
+ * ANY output. We infer type + required (all keys required) recursively so the
+ * output must actually contain those fields.
+ *
+ * If the input already looks like a real JSON Schema, it is returned unchanged.
+ */
+export function normalizeToJsonSchema(input: unknown): Record<string, unknown> {
+  if (Array.isArray(input)) {
+    return input.length > 0
+      ? { type: 'array', items: normalizeToJsonSchema(input[0]) }
+      : { type: 'array' };
+  }
+  if (input !== null && typeof input === 'object') {
+    const obj = input as Record<string, unknown>;
+    if (looksLikeJsonSchema(obj)) return obj; // already a schema — use as-is
+    const keys = Object.keys(obj);
+    const properties: Record<string, unknown> = {};
+    for (const k of keys) properties[k] = normalizeToJsonSchema(obj[k]);
+    return {
+      type: 'object',
+      required: keys,
+      properties,
+      additionalProperties: true,
+    };
+  }
+  // Primitive example value -> infer its type (best-effort). "boolean"/"number"
+  // string hints from example objects are treated as strings unless literal.
+  switch (typeof input) {
+    case 'number':
+      return { type: 'number' };
+    case 'boolean':
+      return { type: 'boolean' };
+    default:
+      return { type: 'string' };
+  }
+}
+
 function isValidHttpUrl(value: string): boolean {
   try {
     const u = new URL(value);
@@ -132,7 +191,11 @@ export class DeterministicEvaluator implements EvaluatorProvider {
       let validate: ValidateFunction | null = null;
       let compileError: string | null = null;
       try {
-        validate = ajv.compile(input.expectedSchema);
+        // Normalize a pasted example object into a strict JSON Schema so a
+        // schema like { rockets: [...], comparison: "string" } actually REQUIRES
+        // those fields instead of validating any output vacuously.
+        const strictSchema = normalizeToJsonSchema(input.expectedSchema);
+        validate = ajv.compile(strictSchema);
       } catch (e) {
         compileError = e instanceof Error ? e.message : String(e);
       }

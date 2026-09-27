@@ -88,4 +88,43 @@ describe('DeterministicEvaluator', () => {
     expect(result.status).toBe(RunStatus.SUCCESS);
     expect(result.checks.find((c) => c.id === 'schema_validation')?.passed).toBe(true);
   });
+
+  it('FAILS when a pasted example-object schema is not satisfied (rocket bug regression)', async () => {
+    // The exact style the user entered: an EXAMPLE object, not a JSON Schema.
+    const exampleSchema = {
+      rockets: [
+        {
+          name: 'string',
+          operator: 'string',
+          reusable: 'boolean',
+          firstFlight: 'string',
+          payloadToLEO: 'string',
+          recentMilestone: 'string',
+          sourceUrl: 'string',
+        },
+      ],
+      comparison: 'string',
+    };
+    // The SEARCH strategy's actual output shape — missing rockets/comparison.
+    const searchOutput = { query: 'x', topResults: [], resultCount: 0 };
+    const result = await evaluator.evaluate(
+      baseInput({ output: searchOutput, expectedSchema: exampleSchema }),
+    );
+    expect(result.checks.find((c) => c.id === 'schema_validation')?.passed).toBe(false);
+    expect(result.status).toBe(RunStatus.FAILED);
+    expect(result.missingFields).toEqual(expect.arrayContaining(['rockets', 'comparison']));
+  });
+
+  it('PASSES a pasted example-object schema when the output actually matches', async () => {
+    const exampleSchema = { rockets: [{ name: 'string' }], comparison: 'string' };
+    const goodOutput = {
+      rockets: [{ name: 'Falcon 9' }],
+      comparison: 'Falcon 9 leads on reuse.',
+    };
+    const result = await evaluator.evaluate(
+      baseInput({ output: goodOutput, expectedSchema: exampleSchema }),
+    );
+    expect(result.checks.find((c) => c.id === 'schema_validation')?.passed).toBe(true);
+    expect(result.status).toBe(RunStatus.SUCCESS);
+  });
 });
