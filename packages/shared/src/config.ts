@@ -32,6 +32,12 @@ const configSchema = z.object({
   maxSearchResults: z.coerce.number().int().min(1).max(20).default(5),
   maxRetries: z.coerce.number().int().min(0).max(5).default(2),
   firecrawlTimeoutMs: z.coerce.number().int().min(1000).max(120_000).default(30_000),
+
+  // AGENT (structured extraction) caps. Agent runs are multi-source research
+  // jobs — longer and more credit-hungry than search, so they get their own
+  // timeout floor and a credit cap.
+  agentTimeoutMs: z.coerce.number().int().min(30_000).max(300_000).default(180_000),
+  maxAgentCredits: z.coerce.number().int().min(1).max(500).default(60),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -50,5 +56,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxSearchResults: env.MAX_SEARCH_RESULTS,
     maxRetries: env.MAX_RETRIES,
     firecrawlTimeoutMs: env.FIRECRAWL_TIMEOUT_MS,
+    agentTimeoutMs: env.AGENT_TIMEOUT_MS,
+    maxAgentCredits: env.MAX_AGENT_CREDITS,
   });
 }

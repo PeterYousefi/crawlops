@@ -46,6 +46,8 @@ export function buildContext(): AppContext {
       evaluator,
       blobs,
       maxSearchResults: config.maxSearchResults,
+      agentTimeoutMs: config.agentTimeoutMs,
+      maxAgentCredits: config.maxAgentCredits,
       logger,
     });
   } else {

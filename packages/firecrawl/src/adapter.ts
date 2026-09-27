@@ -11,6 +11,8 @@
 import Firecrawl, { SdkError } from 'firecrawl';
 import { CrawlOpsError, FailureCategory } from '@crawlops/shared';
 import type {
+  AgentExtractParams,
+  AgentExtractResult,
   FirecrawlClient,
   NormalizedSource,
   ScrapeParams,
@@ -18,6 +20,28 @@ import type {
   SearchParams,
   SearchResult,
 } from './types.js';
+
+/**
+ * Walk an arbitrary extracted object and collect any `sourceUrl` / `url` string
+ * values, so we can record which sources the agent used. Best-effort; purely
+ * derived from the real returned data (no fabrication).
+ */
+function collectSourceUrls(value: unknown, acc: Set<string>, depth = 0): void {
+  if (depth > 6 || value == null) return;
+  if (Array.isArray(value)) {
+    for (const v of value) collectSourceUrls(v, acc, depth + 1);
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if ((k === 'sourceUrl' || k === 'url' || k === 'source') && typeof v === 'string' && /^https?:\/\//.test(v)) {
+        acc.add(v);
+      } else {
+        collectSourceUrls(v, acc, depth + 1);
+      }
+    }
+  }
+}
 
 /** Rejects if the given promise does not settle within `ms`. */
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -179,6 +203,42 @@ export class FirecrawlAdapter implements FirecrawlClient {
         markdown: doc.markdown ?? null,
         statusCode: typeof metadata.statusCode === 'number' ? metadata.statusCode : null,
         creditsUsed: typeof metadata.creditsUsed === 'number' ? metadata.creditsUsed : null,
+        durationMs: Date.now() - started,
+      };
+    } catch (error) {
+      throw mapFirecrawlError(error);
+    }
+  }
+
+  async agentExtract(prompt: string, params: AgentExtractParams): Promise<AgentExtractResult> {
+    const started = Date.now();
+    const timeoutSeconds = Math.ceil((params.timeoutMs ?? this.defaultTimeoutMs) / 1000);
+    try {
+      const req: Record<string, unknown> = {
+        prompt,
+        schema: params.schema,
+        model: 'spark-1-mini', // cheapest agent model
+        timeout: timeoutSeconds,
+      };
+      if (params.maxCredits != null) req.maxCredits = params.maxCredits;
+      if (params.urls && params.urls.length > 0) req.urls = params.urls;
+
+      const res = await this.client.agent(req as never);
+      const completed = res.status === 'completed';
+      const urls = new Set<string>();
+      collectSourceUrls(res.data, urls);
+      const sources: NormalizedSource[] = [...urls].map((url, i) => ({
+        url,
+        title: null,
+        description: null,
+        rank: i + 1,
+        content: null,
+      }));
+      return {
+        data: res.data ?? null,
+        completed,
+        sources,
+        creditsUsed: typeof res.creditsUsed === 'number' ? res.creditsUsed : null,
         durationMs: Date.now() - started,
       };
     } catch (error) {

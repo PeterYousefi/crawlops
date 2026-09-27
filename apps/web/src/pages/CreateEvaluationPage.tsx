@@ -21,6 +21,31 @@ function messageFor(err: unknown): string {
 const inputClass =
   'w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/60 transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25 focus:outline-none aria-[invalid=true]:border-destructive/70';
 
+// A proper JSON Schema starter so strict types (e.g. boolean) are unambiguous.
+const JSON_SCHEMA_STARTER = `{
+  "type": "object",
+  "required": ["rockets", "comparison"],
+  "properties": {
+    "rockets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "operator", "firstFlight", "reusable", "payloadToLEO", "recentMilestone", "sourceUrl"],
+        "properties": {
+          "name": { "type": "string" },
+          "operator": { "type": "string" },
+          "firstFlight": { "type": "string" },
+          "reusable": { "type": "boolean" },
+          "payloadToLEO": { "type": "string" },
+          "recentMilestone": { "type": "string" },
+          "sourceUrl": { "type": "string" }
+        }
+      }
+    },
+    "comparison": { "type": "string" }
+  }
+}`;
+
 function FormSection({
   index,
   title,
@@ -85,13 +110,31 @@ export function CreateEvaluationPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const schemaState = useMemo(() => {
-    if (!schema.trim()) return { ok: true as const, required: 0, error: '', empty: true };
+    if (!schema.trim())
+      return { ok: true as const, required: 0, error: '', empty: true, kind: 'none' as const };
     try {
-      const parsed = JSON.parse(schema);
-      const required = Array.isArray(parsed?.required) ? parsed.required.length : 0;
-      return { ok: true as const, required, error: '', empty: false };
+      const parsed = JSON.parse(schema) as Record<string, unknown>;
+      // Mirror the backend: an object with type/properties/required/items/... is
+      // a real JSON Schema; otherwise it's treated as an example output shape
+      // that CrawlOps normalizes (all keys become required).
+      const schemaKeys = ['type', 'properties', 'required', 'items', 'anyOf', 'oneOf', 'allOf', '$ref', 'enum'];
+      const isJsonSchema =
+        parsed != null &&
+        typeof parsed === 'object' &&
+        !Array.isArray(parsed) &&
+        schemaKeys.some((k) => k in parsed);
+      const required = Array.isArray((parsed as { required?: unknown }).required)
+        ? ((parsed as { required: unknown[] }).required.length)
+        : 0;
+      return {
+        ok: true as const,
+        required,
+        error: '',
+        empty: false,
+        kind: isJsonSchema ? ('schema' as const) : ('example' as const),
+      };
     } catch (e) {
-      return { ok: false as const, required: 0, error: (e as Error).message, empty: false };
+      return { ok: false as const, required: 0, error: (e as Error).message, empty: false, kind: 'invalid' as const };
     }
   }, [schema]);
 
@@ -221,17 +264,26 @@ export function CreateEvaluationPage() {
 
             <FormSection
               index={2}
-              title="Expected schema (optional)"
-              description="JSON Schema the run output must satisfy. A mismatch fails the run with INVALID_SCHEMA."
+              title="Expected output (optional)"
+              description="Paste a real JSON Schema (used as-is) OR an example output object (CrawlOps normalizes it into a schema and requires every key). A mismatch fails the run with INVALID_SCHEMA."
               aside={
-                <button
-                  type="button"
-                  onClick={format}
-                  disabled={!schemaState.ok || schemaState.empty}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground disabled:opacity-40"
-                >
-                  <Wand2 className="h-3 w-3" /> Format
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSchema(JSON_SCHEMA_STARTER)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+                  >
+                    Insert JSON Schema starter
+                  </button>
+                  <button
+                    type="button"
+                    onClick={format}
+                    disabled={!schemaState.ok || schemaState.empty}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground disabled:opacity-40"
+                  >
+                    <Wand2 className="h-3 w-3" /> Format
+                  </button>
+                </div>
               }
             >
               <div
@@ -254,7 +306,9 @@ export function CreateEvaluationPage() {
                   value={schema}
                   onChange={(e) => setSchema(e.target.value)}
                   rows={Math.max(8, Math.min(lineCount + 1, 28))}
-                  placeholder={'{\n  "type": "object",\n  "required": ["price"]\n}'}
+                  placeholder={
+                    '{\n  "type": "object",\n  "required": ["price", "inStock"],\n  "properties": {\n    "price": { "type": "string" },\n    "inStock": { "type": "boolean" }\n  }\n}'
+                  }
                   className="scrollbar-thin w-full resize-y bg-transparent px-3 py-3 font-mono text-xs leading-6 whitespace-pre text-foreground/90 focus:outline-none"
                 />
                 <div
@@ -265,9 +319,15 @@ export function CreateEvaluationPage() {
                 >
                   {schemaState.empty ? (
                     <>No schema — grounding/structure checks still run.</>
-                  ) : schemaState.ok ? (
+                  ) : schemaState.ok && schemaState.kind === 'schema' ? (
                     <>
-                      <Check className="h-3 w-3 text-success" /> valid JSON · {schemaState.required} required top-level fields
+                      <Check className="h-3 w-3 text-success" /> detected a JSON Schema · used as-is ·{' '}
+                      {schemaState.required} required top-level field(s)
+                    </>
+                  ) : schemaState.ok && schemaState.kind === 'example' ? (
+                    <>
+                      <Check className="h-3 w-3 text-warning" /> detected an example shape · CrawlOps will
+                      normalize it to a JSON Schema and require every key
                     </>
                   ) : (
                     <>
@@ -276,6 +336,10 @@ export function CreateEvaluationPage() {
                   )}
                 </div>
               </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Example shapes infer types from the JSON values. Use JSON Schema for strict typing
+                (e.g. <code className="rounded bg-muted px-1 font-mono">{'"reusable": { "type": "boolean" }'}</code>).
+              </p>
             </FormSection>
 
             <section className="rounded-lg border border-border bg-surface">
@@ -305,9 +369,16 @@ export function CreateEvaluationPage() {
                       onChange={(e) => setStrategy(e.target.value as CreateEvaluationInput['strategy'])}
                       className={inputClass}
                     >
-                      <option value="SEARCH">SEARCH</option>
+                      <option value="SEARCH">SEARCH — Fast retrieval, lower Firecrawl usage</option>
+                      <option value="AGENT">AGENT — Structured research, slower, higher Firecrawl credit usage</option>
                       <option value="AUTO">AUTO (maps to SEARCH)</option>
                     </select>
+                    {strategy === 'AGENT' ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        Firecrawl researches sources and returns an object matching your expected
+                        output. Requires an expected output above.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="space-y-1.5">
                     <label htmlFor="minSources" className="block text-xs font-medium">

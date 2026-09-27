@@ -32,6 +32,10 @@ export interface OrchestratorDeps {
   evaluator: EvaluatorProvider;
   blobs: BlobStore;
   maxSearchResults: number;
+  /** Timeout floor for the AGENT (structured extraction) strategy. Default 180s. */
+  agentTimeoutMs?: number;
+  /** Cost cap (Firecrawl credits) for AGENT extraction. Default 60. */
+  maxAgentCredits?: number;
   logger?: Logger;
 }
 
@@ -64,12 +68,21 @@ export class Orchestrator {
     });
 
     const strategy = selectStrategy(run.strategy);
+    // The AGENT (structured-extraction) strategy is a multi-source research job
+    // that legitimately takes longer than a single search; give it a larger
+    // timeout floor while keeping the evaluation's own timeout for SEARCH.
+    const isAgent = run.strategy === 'AGENT';
+    const strategyTimeoutMs = isAgent
+      ? Math.max(evaluation.timeoutMs, this.deps.agentTimeoutMs ?? 180_000)
+      : evaluation.timeoutMs;
     const context: StrategyContext = {
       taskPrompt: evaluation.taskPrompt,
       startingUrls: evaluation.startingUrls,
       maxFirecrawlCalls: evaluation.maxFirecrawlCalls,
       maxSearchResults: Math.min(this.deps.maxSearchResults, evaluation.maxFirecrawlCalls),
-      timeoutMs: evaluation.timeoutMs,
+      timeoutMs: strategyTimeoutMs,
+      expectedSchema: (evaluation.expectedSchema as Record<string, unknown> | null) ?? null,
+      maxAgentCredits: this.deps.maxAgentCredits ?? 60,
     };
 
     let lastError: CrawlOpsError | null = null;

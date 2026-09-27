@@ -19,6 +19,8 @@ function stubContext(): AppContext {
       maxSearchResults: 5,
       maxRetries: 2,
       firecrawlTimeoutMs: 30_000,
+      agentTimeoutMs: 180_000,
+      maxAgentCredits: 60,
     },
     logger: createLogger(),
     // Not used by the health route when databaseUrl is undefined.

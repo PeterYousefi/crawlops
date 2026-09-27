@@ -32,7 +32,7 @@ function makeFakePrisma(evaluationOverrides: Record<string, unknown> = {}) {
     id: 'run1',
     evaluationId: 'eval1',
     status: RunStatus.PENDING,
-    strategy: 'SEARCH',
+    strategy: evaluation.strategy,
     startedAt: null,
     finishedAt: null,
     durationMs: null,
@@ -110,6 +110,53 @@ describe('Orchestrator', () => {
     expect(fake.attempts[0]!.status).toBe(AttemptStatus.SUCCESS);
     expect(fake.evaluationResults).toHaveLength(1);
     expect(fake.run.status).toBe(RunStatus.SUCCESS);
+  });
+
+  it('AGENT strategy: structured output matching the schema -> SUCCESS', async () => {
+    const schema = { rockets: [{ name: 'string' }], comparison: 'string' };
+    const fake = makeFakePrisma({ strategy: 'AGENT', expectedSchema: schema });
+    const agentOutput = {
+      rockets: [{ name: 'Falcon 9' }],
+      comparison: 'Falcon 9 leads on reuse.',
+    };
+    const orch = new Orchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      prisma: fake.prisma as any,
+      firecrawl: new MockFirecrawlClient({
+        agentExtractResult: {
+          data: agentOutput,
+          completed: true,
+          sources: [
+            { url: 'https://www.spacex.com/vehicles/falcon-9', title: null, description: null, rank: 1, content: null },
+          ],
+        },
+      }),
+      evaluator,
+      blobs: noopBlobs,
+      maxSearchResults: 3,
+    });
+    const status = await orch.executeRun('run1');
+    expect(status).toBe(RunStatus.SUCCESS);
+    expect(fake.run.finalOutput).toEqual(agentOutput);
+    expect(fake.run.status).toBe(RunStatus.SUCCESS);
+  });
+
+  it('AGENT strategy: output missing required fields -> FAILED (honest)', async () => {
+    const schema = { rockets: [{ name: 'string' }], comparison: 'string' };
+    const fake = makeFakePrisma({ strategy: 'AGENT', expectedSchema: schema });
+    const orch = new Orchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      prisma: fake.prisma as any,
+      firecrawl: new MockFirecrawlClient({
+        // Agent returned an incomplete object (missing comparison).
+        agentExtractResult: { data: { rockets: [{ name: 'Falcon 9' }] }, completed: true, sources: [] },
+      }),
+      evaluator,
+      blobs: noopBlobs,
+      maxSearchResults: 3,
+    });
+    const status = await orch.executeRun('run1');
+    expect(status).toBe(RunStatus.FAILED);
   });
 
   it('retries on a retryable failure then fails after exhausting attempts', async () => {

@@ -11,6 +11,8 @@
 
 import { CrawlOpsError } from '@crawlops/shared';
 import type {
+  AgentExtractParams,
+  AgentExtractResult,
   FirecrawlClient,
   ScrapeParams,
   ScrapeResult,
@@ -21,8 +23,9 @@ import type {
 export interface MockConfig {
   searchResult?: Partial<SearchResult>;
   scrapeResult?: Partial<ScrapeResult>;
+  agentExtractResult?: Partial<AgentExtractResult>;
   /** If set, calls reject with this error (to exercise failure handling). */
-  throwOn?: { search?: CrawlOpsError; scrape?: CrawlOpsError };
+  throwOn?: { search?: CrawlOpsError; scrape?: CrawlOpsError; agentExtract?: CrawlOpsError };
 }
 
 export class MockFirecrawlClient implements FirecrawlClient {
@@ -58,6 +61,26 @@ export class MockFirecrawlClient implements FirecrawlClient {
       creditsUsed: 0,
       durationMs: 5,
       ...this.config.scrapeResult,
+    };
+  }
+
+  async agentExtract(_prompt: string, _params: AgentExtractParams): Promise<AgentExtractResult> {
+    if (this.config.throwOn?.agentExtract) throw this.config.throwOn.agentExtract;
+    return {
+      data: { example: 'mock structured output' },
+      completed: true,
+      sources: [
+        {
+          url: 'https://example.com/source',
+          title: null,
+          description: null,
+          rank: 1,
+          content: null,
+        },
+      ],
+      creditsUsed: 0,
+      durationMs: 5,
+      ...this.config.agentExtractResult,
     };
   }
 

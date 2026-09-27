@@ -51,6 +51,28 @@ export interface ScrapeParams {
   timeoutMs?: number;
 }
 
+export interface AgentExtractParams {
+  /** JSON Schema describing the structured output to produce. */
+  schema: Record<string, unknown>;
+  /** Optional starting URLs to constrain/seed the research. */
+  urls?: string[];
+  /** Cost cap in Firecrawl credits. */
+  maxCredits?: number;
+  /** Hard timeout in milliseconds. */
+  timeoutMs?: number;
+}
+
+export interface AgentExtractResult {
+  /** The structured object Firecrawl's agent produced (schema-shaped) or null. */
+  data: unknown;
+  /** Whether the agent job completed successfully. */
+  completed: boolean;
+  /** Source URLs the agent cited/used, when reported. */
+  sources: NormalizedSource[];
+  creditsUsed: number | null;
+  durationMs: number;
+}
+
 /**
  * The abstraction the rest of CrawlOps depends on.
  * The real adapter wraps the Firecrawl SDK; the mock implements it for tests.
@@ -58,6 +80,12 @@ export interface ScrapeParams {
 export interface FirecrawlClient {
   search(query: string, params?: SearchParams): Promise<SearchResult>;
   scrape(url: string, params?: ScrapeParams): Promise<ScrapeResult>;
+  /**
+   * Structured extraction: hand a research task + JSON Schema to Firecrawl's
+   * agent and get back a schema-shaped object synthesized from real sources.
+   * Firecrawl-native — no LLM on our side.
+   */
+  agentExtract(prompt: string, params: AgentExtractParams): Promise<AgentExtractResult>;
   /** Lightweight reachability/auth probe used by the /health endpoint. */
   ping(): Promise<{ ok: boolean; message: string }>;
 }

@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "verify": "tsx scripts/verify-loop.ts",
-    "lint": "echo \"(lint placeholder)\""
+    "lint": "echo \"(lint placeholder)\"",
+    "verify-extract": "tsx scripts/verify-extract.ts"
   },
   "dependencies": {
     "@crawlops/database": "workspace:*",
