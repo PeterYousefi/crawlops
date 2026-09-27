@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, type HealthResponse } from './client.js';
-import type { Evaluation, RunReport } from '@crawlops/shared';
+import type { Evaluation, RunReport, RunListItem } from '@crawlops/shared';
 
 interface AsyncState<T> {
   data: T | null;
@@ -40,6 +40,10 @@ export function useHealth() {
 
 export function useEvaluations() {
   return useAsync<Evaluation[]>(() => api.listEvaluations(), []);
+}
+
+export function useRuns(limit = 20) {
+  return useAsync<RunListItem[]>(() => api.listRuns(limit), [limit]);
 }
 
 export function useRun(id: string) {

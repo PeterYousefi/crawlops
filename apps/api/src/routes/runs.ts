@@ -3,7 +3,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { ok } from '@crawlops/shared';
+import { ok, type RunListItem } from '@crawlops/shared';
 import type { AppContext } from '../context.js';
 import {
   serializeRun,
@@ -13,7 +13,33 @@ import {
   serializeEvaluationResult,
 } from '../serializers.js';
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
 export async function registerRunRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
+  // List recent persisted runs, newest first. Read-only. Joins the evaluation
+  // name and the evaluation result's overall score so lists render in one call.
+  app.get<{ Querystring: { limit?: string } }>('/api/runs', async (request) => {
+    const raw = Number(request.query.limit);
+    const limit = Number.isFinite(raw) ? Math.min(MAX_LIMIT, Math.max(1, Math.trunc(raw))) : DEFAULT_LIMIT;
+
+    const rows = await ctx.prisma.run.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        evaluation: { select: { name: true } },
+        evaluationResult: { select: { overallScore: true } },
+      },
+    });
+
+    const items: RunListItem[] = rows.map((r) => ({
+      ...serializeRun(r),
+      evaluationName: r.evaluation.name,
+      overallScore: r.evaluationResult ? r.evaluationResult.overallScore : null,
+    }));
+    return ok(items);
+  });
+
   // Full run report
   app.get<{ Params: { id: string } }>('/api/runs/:id', async (request, reply) => {
     const run = await ctx.prisma.run.findUnique({

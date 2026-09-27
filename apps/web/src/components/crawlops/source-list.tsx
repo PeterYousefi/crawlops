@@ -1,0 +1,94 @@
+import { useState } from 'react';
+import { ExternalLink, Globe } from 'lucide-react';
+import type { Source } from '@crawlops/shared';
+import { Empty } from './primitives';
+
+/** Extract a display domain from a URL, falling back to the raw string. */
+function domainOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+// Real Firecrawl descriptions can be long (e.g. a README blob). Clamp to a few
+// lines with a show-more/less toggle. Only clamp when it's actually long.
+const CLAMP_CHARS = 240;
+
+function SourceDescription({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > CLAMP_CHARS;
+  return (
+    <div className="mt-2.5 border-l-2 border-border pl-3">
+      <p
+        className={
+          'text-xs leading-relaxed text-muted-foreground' + (isLong && !expanded ? ' line-clamp-3' : '')
+        }
+      >
+        {text}
+      </p>
+      {isLong ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 rounded text-[11px] font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          aria-expanded={expanded}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// Uses ONLY real API Source fields: url, title, description, rank.
+// Mock-only fields (tokens, excerpt, statusCode, usedFields) are intentionally
+// omitted rather than fabricated.
+export function SourceList({ sources }: { sources: Source[] }) {
+  if (sources.length === 0) {
+    return <Empty>No sources retrieved.</Empty>;
+  }
+  return (
+    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+      {sources.map((s, i) => (
+        <li key={s.id} className="group flex gap-3 px-4 py-3.5 transition-colors hover:bg-surface-raised">
+          <span
+            aria-label={`Source ${i + 1}`}
+            className="mt-px w-5 shrink-0 font-mono text-[11px] text-muted-foreground/70 tabular-nums"
+          >
+            {String(s.rank ?? i + 1).padStart(2, '0')}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Globe className="h-3.5 w-3.5" />
+                  <span className="font-mono">{domainOf(s.url)}</span>
+                </div>
+                <div className="mt-1 truncate text-sm font-medium">{s.title ?? '(untitled)'}</div>
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="mt-0.5 block truncate font-mono text-xs text-muted-foreground hover:text-primary"
+                >
+                  {s.url}
+                </a>
+              </div>
+              <a
+                href={s.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:bg-surface-raised hover:text-foreground"
+              >
+                Open <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+            {s.description ? <SourceDescription text={s.description} /> : null}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}

@@ -1,113 +1,373 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client.js';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AlertTriangle, Check, ChevronRight, Loader2, Play, Wand2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { PageBody, PageHeader } from '@/components/crawlops/app-shell';
+import { cn } from '@/lib/utils';
+import { api } from '@/api/client';
 import type { CreateEvaluationInput } from '@crawlops/shared';
 
-/** Create-evaluation form. Minimal fields; validated server-side by Zod. */
+const inputClass =
+  'w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/60 transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25 focus:outline-none aria-[invalid=true]:border-destructive/70';
+
+function FormSection({
+  index,
+  title,
+  description,
+  aside,
+  children,
+}: {
+  index: number;
+  title: string;
+  description: string;
+  aside?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-end justify-between gap-4 border-b border-border pb-2">
+        <div>
+          <h2 className="flex items-baseline gap-2.5 text-sm font-semibold tracking-tight">
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {String(index).padStart(2, '0')}
+            </span>
+            {title}
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        </div>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function FieldError({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <p id={id} className="flex items-center gap-1.5 text-xs text-destructive">
+      <AlertTriangle className="h-3 w-3 shrink-0" />
+      {children}
+    </p>
+  );
+}
+
+/**
+ * New evaluation — approved Lovable layout, REAL flow:
+ *   create evaluation -> real evaluation id -> start real run -> real run id
+ *   -> navigate to /runs/:realRunId. No mock timers / fake queued results.
+ * Only fields the API accepts are submitted; the mock's evaluator-check catalog
+ * (not a real API input) is intentionally omitted.
+ */
 export function CreateEvaluationPage() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [taskPrompt, setTaskPrompt] = useState('');
-  const [startingUrls, setStartingUrls] = useState('');
+  const [schema, setSchema] = useState('');
   const [strategy, setStrategy] = useState<CreateEvaluationInput['strategy']>('SEARCH');
-  const [expectedSchema, setExpectedSchema] = useState('');
+  const [maxFirecrawlCalls, setMaxFirecrawlCalls] = useState(5);
   const [maxRetries, setMaxRetries] = useState(2);
+  const [timeoutMs, setTimeoutMs] = useState(30000);
+  const [minSources, setMinSources] = useState(1);
+  const [advanced, setAdvanced] = useState(false);
+  const [touched, setTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
+  const schemaState = useMemo(() => {
+    if (!schema.trim()) return { ok: true as const, required: 0, error: '', empty: true };
     try {
-      let parsedSchema: Record<string, unknown> | null = null;
-      if (expectedSchema.trim()) {
-        try {
-          parsedSchema = JSON.parse(expectedSchema);
-        } catch {
-          throw new Error('Expected schema is not valid JSON.');
-        }
-      }
+      const parsed = JSON.parse(schema);
+      const required = Array.isArray(parsed?.required) ? parsed.required.length : 0;
+      return { ok: true as const, required, error: '', empty: false };
+    } catch (e) {
+      return { ok: false as const, required: 0, error: (e as Error).message, empty: false };
+    }
+  }, [schema]);
+
+  const errors = {
+    name: !name.trim() ? 'Give the evaluation a name.' : name.length > 200 ? 'Keep the name under 200 characters.' : null,
+    query: !taskPrompt.trim() ? 'Describe the research task.' : null,
+    schema: schema.trim() && !schemaState.ok ? schemaState.error : null,
+  };
+  const hasErrors = Object.values(errors).some(Boolean);
+  const show = (k: keyof typeof errors) => (touched ? errors[k] : null);
+  const lineCount = schema.split('\n').length;
+
+  function format() {
+    try {
+      setSchema(JSON.stringify(JSON.parse(schema), null, 2));
+    } catch {
+      setTouched(true);
+    }
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (submitting) return;
+    setTouched(true);
+    setSubmitError(null);
+    if (hasErrors) return;
+
+    setSubmitting(true);
+    try {
+      let expectedSchema: Record<string, unknown> | null = null;
+      if (schema.trim()) expectedSchema = JSON.parse(schema) as Record<string, unknown>;
+
       const input: CreateEvaluationInput = {
         name,
         taskPrompt,
-        startingUrls: startingUrls
-          .split('\n')
-          .map((u) => u.trim())
-          .filter(Boolean),
+        startingUrls: [],
         strategy,
-        expectedSchema: parsedSchema,
+        expectedSchema,
         maxRetries,
-        maxFirecrawlCalls: 5,
-        timeoutMs: 30_000,
-        minSources: 1,
+        maxFirecrawlCalls,
+        timeoutMs,
+        minSources,
       };
-      await api.createEvaluation(input);
-      navigate('/evaluations');
+
+      // 1) real create -> 2) real evaluation id
+      const evaluation = await api.createEvaluation(input);
+      // 3) real run -> 4) real run id (persisted server-side)
+      const run = await api.runEvaluation(evaluation.id);
+      toast.success(`Run ${run.status.toLowerCase()}`);
+      // 5) navigate to the real run details
+      navigate(`/runs/${run.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
+      setSubmitError(err instanceof Error ? err.message : 'Request failed');
       setSubmitting(false);
     }
   }
 
   return (
     <>
-      <h1>New Evaluation</h1>
-      <p className="subtitle">Define a research task and how it should be evaluated.</p>
+      <PageHeader
+        breadcrumb={
+          <Link to="/evaluations" className="hover:text-foreground">
+            Evaluations
+          </Link>
+        }
+        title="New evaluation"
+        description="An evaluation pairs a web research task with the structured output you expect back. Every run is graded against it."
+      />
+      <form onSubmit={onSubmit} noValidate>
+        <PageBody>
+          <div className="max-w-3xl space-y-8">
+            <FormSection index={1} title="Research task" description="What the crawler and extractor should find.">
+              <div className="space-y-1.5">
+                <label htmlFor="name" className="block text-xs font-medium">
+                  Name
+                </label>
+                <input
+                  id="name"
+                  value={name}
+                  maxLength={200}
+                  onChange={(e) => setName(e.target.value)}
+                  aria-invalid={!!show('name')}
+                  placeholder="SaaS pricing tier scrape"
+                  className={inputClass}
+                />
+                {show('name') ? <FieldError id="name-err">{show('name')}</FieldError> : null}
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between">
+                  <label htmlFor="query" className="block text-xs font-medium">
+                    Task
+                  </label>
+                  <span className="font-mono text-[11px] text-muted-foreground">{taskPrompt.length} chars</span>
+                </div>
+                <textarea
+                  id="query"
+                  rows={5}
+                  value={taskPrompt}
+                  onChange={(e) => setTaskPrompt(e.target.value)}
+                  aria-invalid={!!show('query')}
+                  placeholder="Find the current pricing tiers for Vercel, with monthly price and seat limits. Return as JSON."
+                  className={cn(inputClass, 'resize-y leading-relaxed')}
+                />
+                {show('query') ? <FieldError id="query-err">{show('query')}</FieldError> : null}
+              </div>
+            </FormSection>
 
-      {error && <p className="error">{error}</p>}
+            <FormSection
+              index={2}
+              title="Expected schema (optional)"
+              description="JSON Schema the run output must satisfy. A mismatch fails the run with INVALID_SCHEMA."
+              aside={
+                <button
+                  type="button"
+                  onClick={format}
+                  disabled={!schemaState.ok || schemaState.empty}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground disabled:opacity-40"
+                >
+                  <Wand2 className="h-3 w-3" /> Format
+                </button>
+              }
+            >
+              <div
+                className={cn(
+                  'overflow-hidden rounded-lg border bg-background transition-colors focus-within:ring-2',
+                  show('schema') || !schemaState.ok
+                    ? 'border-destructive/60 focus-within:ring-destructive/20'
+                    : 'border-border focus-within:border-ring focus-within:ring-ring/20',
+                )}
+              >
+                <div className="flex items-center justify-between border-b border-border bg-surface px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+                  <span>schema.json</span>
+                  <span>{lineCount} lines</span>
+                </div>
+                <textarea
+                  id="schema"
+                  aria-label="Expected schema (JSON)"
+                  aria-invalid={!schemaState.ok}
+                  spellCheck={false}
+                  value={schema}
+                  onChange={(e) => setSchema(e.target.value)}
+                  rows={Math.max(8, Math.min(lineCount + 1, 28))}
+                  placeholder={'{\n  "type": "object",\n  "required": ["price"]\n}'}
+                  className="scrollbar-thin w-full resize-y bg-transparent px-3 py-3 font-mono text-xs leading-6 whitespace-pre text-foreground/90 focus:outline-none"
+                />
+                <div
+                  className={cn(
+                    'flex items-center gap-2 border-t border-border px-3 py-2 font-mono text-[11px]',
+                    schemaState.ok ? 'text-muted-foreground' : 'text-destructive',
+                  )}
+                >
+                  {schemaState.empty ? (
+                    <>No schema — grounding/structure checks still run.</>
+                  ) : schemaState.ok ? (
+                    <>
+                      <Check className="h-3 w-3 text-success" /> valid JSON · {schemaState.required} required top-level fields
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="h-3 w-3" /> {schemaState.error}
+                    </>
+                  )}
+                </div>
+              </div>
+            </FormSection>
 
-      <form className="card" style={{ maxWidth: 640 }} onSubmit={handleSubmit}>
-        <label>Evaluation name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} required />
+            <section className="rounded-lg border border-border bg-surface">
+              <button
+                type="button"
+                onClick={() => setAdvanced((v) => !v)}
+                aria-expanded={advanced}
+                className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                <ChevronRight className={cn('h-4 w-4 text-muted-foreground transition-transform', advanced && 'rotate-90')} />
+                <span className="flex-1">
+                  <span className="block text-sm font-medium">Run settings</span>
+                  <span className="block font-mono text-[11px] text-muted-foreground">
+                    {strategy} · ≤{maxFirecrawlCalls} calls · {maxRetries} retries · {timeoutMs / 1000}s · min {minSources} sources
+                  </span>
+                </span>
+              </button>
+              {advanced ? (
+                <div className="grid gap-4 border-t border-border px-4 py-5 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="strategy" className="block text-xs font-medium">
+                      Strategy
+                    </label>
+                    <select
+                      id="strategy"
+                      value={strategy}
+                      onChange={(e) => setStrategy(e.target.value as CreateEvaluationInput['strategy'])}
+                      className={inputClass}
+                    >
+                      <option value="SEARCH">SEARCH</option>
+                      <option value="AUTO">AUTO (maps to SEARCH)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="minSources" className="block text-xs font-medium">
+                      Minimum sources
+                    </label>
+                    <input
+                      id="minSources"
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={minSources}
+                      onChange={(e) => setMinSources(Math.max(0, Math.min(50, Number(e.target.value) || 0)))}
+                      className={cn(inputClass, 'font-mono')}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="maxCalls" className="block text-xs font-medium">
+                      Max Firecrawl calls
+                    </label>
+                    <input
+                      id="maxCalls"
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={maxFirecrawlCalls}
+                      onChange={(e) => setMaxFirecrawlCalls(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                      className={cn(inputClass, 'font-mono')}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="retries" className="block text-xs font-medium">
+                      Max retries
+                    </label>
+                    <input
+                      id="retries"
+                      type="number"
+                      min={0}
+                      max={5}
+                      value={maxRetries}
+                      onChange={(e) => setMaxRetries(Math.max(0, Math.min(5, Number(e.target.value) || 0)))}
+                      className={cn(inputClass, 'font-mono')}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="timeout" className="block text-xs font-medium">
+                      Timeout (ms)
+                    </label>
+                    <input
+                      id="timeout"
+                      type="number"
+                      min={1000}
+                      max={120000}
+                      step={1000}
+                      value={timeoutMs}
+                      onChange={(e) => setTimeoutMs(Math.max(1000, Math.min(120000, Number(e.target.value) || 1000)))}
+                      className={cn(inputClass, 'font-mono')}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </section>
 
-        <label>Task / prompt</label>
-        <textarea
-          rows={3}
-          value={taskPrompt}
-          onChange={(e) => setTaskPrompt(e.target.value)}
-          placeholder="Find the current pricing tiers for Vercel. Return as JSON."
-          required
-        />
-
-        <label>Starting URLs (optional, one per line)</label>
-        <textarea
-          rows={2}
-          value={startingUrls}
-          onChange={(e) => setStartingUrls(e.target.value)}
-          placeholder="https://vercel.com/pricing"
-        />
-
-        <label>Strategy</label>
-        <select
-          value={strategy}
-          onChange={(e) => setStrategy(e.target.value as CreateEvaluationInput['strategy'])}
-        >
-          <option value="SEARCH">SEARCH</option>
-          <option value="AUTO">AUTO (maps to SEARCH for now)</option>
-        </select>
-
-        <label>Expected output schema (optional JSON Schema)</label>
-        <textarea
-          rows={4}
-          value={expectedSchema}
-          onChange={(e) => setExpectedSchema(e.target.value)}
-          placeholder='{ "type": "object", "required": ["price"] }'
-        />
-
-        <label>Maximum retries</label>
-        <input
-          type="number"
-          min={0}
-          max={5}
-          value={maxRetries}
-          onChange={(e) => setMaxRetries(Number(e.target.value))}
-        />
-
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Creating…' : 'Create Evaluation'}
-        </button>
+            <div className="flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-h-4 text-xs" aria-live="polite">
+                {submitError ? (
+                  <FieldError id="submit-err">Couldn't create the evaluation: {submitError}</FieldError>
+                ) : touched && hasErrors ? (
+                  <span className="text-destructive">Fix the highlighted fields to continue.</span>
+                ) : submitting ? (
+                  <span className="font-mono text-muted-foreground">creating evaluation and running…</span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/evaluations"
+                  className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Cancel
+                </Link>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  {submitting ? 'Running…' : 'Create & run'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </PageBody>
       </form>
     </>
   );

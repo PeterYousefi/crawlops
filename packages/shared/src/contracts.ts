@@ -137,6 +137,17 @@ export const runReportSchema = runSchema.extend({
 });
 export type RunReport = z.infer<typeof runReportSchema>;
 
+/**
+ * Lightweight run row for lists (GET /api/runs). Extends the base run with the
+ * joined evaluation name and the evaluation result's overall score, so the
+ * Runs list / Overview can render without an extra fetch per row.
+ */
+export const runListItemSchema = runSchema.extend({
+  evaluationName: z.string(),
+  overallScore: z.number().min(0).max(1).nullable(),
+});
+export type RunListItem = z.infer<typeof runListItemSchema>;
+
 // ---- Metrics ----
 
 export const metricsSchema = z.object({
