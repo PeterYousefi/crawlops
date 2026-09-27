@@ -30,7 +30,7 @@ flowchart TD
 ### Interfaces isolate vendors
 - `FirecrawlClient` — the only place the `firecrawl` SDK is imported. A mock implements the same interface for tests.
 - `EvaluatorProvider` — deterministic first; an OpenAI provider can be added without touching callers.
-- `BlobStore` — large scraped artifacts are stored as files (local disk in dev) referenced by a pointer in Postgres; swaps to Azure Blob later.
+- `BlobStore` — large scraped artifacts are stored as files (local disk in dev) referenced by a pointer in Postgres; swaps to Azure Blob later. **Cloud note:** Container Apps' filesystem is ephemeral/per-replica, so `LocalBlobStore` is unsuitable for cloud persistence. The SEARCH MVP does not persist large content (only URLs/metadata in Postgres), so it does not rely on the filesystem; `AzureBlobStore` is deferred until SCRAPE/CRAWL need it (see `docs/DEPLOYMENT.md`).
 - `JobRunner` — the seam where a real queue (Service Bus / Redis) replaces in-process execution.
 
 ### In-process orchestrator for the MVP

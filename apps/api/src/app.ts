@@ -20,8 +20,10 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     bodyLimit: 256 * 1024, // 256KB cap on request bodies
   });
 
+  // CORS: if WEB_ORIGIN is configured (production), allow only that origin.
+  // Otherwise reflect the request origin (local dev convenience).
   await app.register(cors, {
-    origin: true, // reflect request origin in dev; tighten per-env for production
+    origin: ctx.config.webOrigin ? [ctx.config.webOrigin] : true,
   });
 
   await registerHealthRoutes(app, ctx);

@@ -19,6 +19,10 @@ const configSchema = z.object({
   firecrawlApiKey: z.string().optional(),
   databaseUrl: z.string().optional(),
 
+  // Allowed browser origin for CORS. In production set to the frontend URL; when
+  // unset, CORS is permissive (fine for local dev).
+  webOrigin: z.string().optional(),
+
   evaluatorProvider: z.enum(['deterministic', 'openai']).default('deterministic'),
   openaiApiKey: z.string().optional(),
   openaiEvaluatorModel: z.string().default('gpt-4o-mini'),
@@ -38,6 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: env.LOG_LEVEL,
     firecrawlApiKey: env.FIRECRAWL_API_KEY || undefined,
     databaseUrl: env.DATABASE_URL || undefined,
+    webOrigin: env.WEB_ORIGIN || undefined,
     evaluatorProvider: env.EVALUATOR_PROVIDER,
     openaiApiKey: env.OPENAI_API_KEY || undefined,
     openaiEvaluatorModel: env.OPENAI_EVALUATOR_MODEL,

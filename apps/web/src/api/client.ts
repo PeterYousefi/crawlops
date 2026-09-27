@@ -16,7 +16,12 @@ import type {
   ApiError,
 } from '@crawlops/shared';
 
-const BASE = ''; // same origin (Vite proxies /api to the API in dev)
+// API base URL.
+// - Local dev: VITE_API_URL is unset -> BASE is '' -> requests are same-origin
+//   and the Vite dev server proxies /api to the local API.
+// - Production (Static Web Apps): VITE_API_URL is baked in at build time and
+//   points at the Container Apps API URL, e.g. https://crawlops-api....azurecontainerapps.io
+const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

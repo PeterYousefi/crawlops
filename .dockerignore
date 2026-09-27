@@ -1,0 +1,22 @@
+# Keep the build context small and never ship secrets or local state.
+**/node_modules
+**/dist
+**/build
+**/.turbo
+**/coverage
+storage/
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vscode
+.idea
+# web app is deployed via Static Web Apps, not this image — but its manifest is
+# needed so the frozen pnpm lockfile stays consistent during install.
+apps/web/*
+!apps/web/package.json
+docs
+infrastructure

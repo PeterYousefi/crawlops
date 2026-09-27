@@ -46,6 +46,17 @@ describe('GET /api/health', () => {
   });
 });
 
+describe('GET /api/ready', () => {
+  it('returns 503 when the database is not configured', async () => {
+    const app = await buildApp(stubContext());
+    const res = await app.inject({ method: 'GET', url: '/api/ready' });
+    expect(res.statusCode).toBe(503);
+    const body = res.json() as { data: { status: string } };
+    expect(body.data.status).toBe('not_ready');
+    await app.close();
+  });
+});
+
 describe('POST /api/evaluations/:id/run without Firecrawl', () => {
   it('returns 503 with a clear error', async () => {
     const ctx = stubContext();

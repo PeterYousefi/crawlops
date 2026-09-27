@@ -1,0 +1,11 @@
+{
+  "name": "crawlops-api-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal runtime manifest for the CrawlOps API container. The API code is bundled into dist/server.js; only the Prisma client (which loads a native query engine and cannot be bundled) is installed here.",
+  "dependencies": {
+    "@prisma/client": "^6.2.1",
+    "prisma": "^6.2.1"
+  }
+}

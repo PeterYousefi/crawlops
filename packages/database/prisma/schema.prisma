@@ -8,6 +8,11 @@
 
 generator client {
   provider = "prisma-client-js"
+  // "native" covers local dev (macOS/Linux host). The debian-openssl-3.0.x
+  // target is the query engine for the production container (Debian-slim Node
+  // image ships OpenSSL 3). Without this, Prisma crashes at runtime in the
+  // container with a "query engine binary not found" error.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
