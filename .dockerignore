@@ -14,9 +14,9 @@ storage/
 .DS_Store
 .vscode
 .idea
-# web app is deployed via Static Web Apps, not this image — but its manifest is
-# needed so the frozen pnpm lockfile stays consistent during install.
-apps/web/*
-!apps/web/package.json
+# The web app is built into its own container image (apps/web/Dockerfile), so its
+# source must remain in the build context. The API image only copies
+# apps/web/package.json explicitly, so keeping web sources here is harmless there.
+# (Build output is still excluded via the **/dist rule above.)
 docs
 infrastructure
