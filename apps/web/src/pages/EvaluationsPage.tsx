@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { PageBody, PageHeader } from '@/components/crawlops/app-shell';
 import { Empty } from '@/components/crawlops/primitives';
 import { useEvaluations } from '@/api/hooks';
-import { api } from '@/api/client';
+import { api, ApiRequestError } from '@/api/client';
 import { formatRelative } from '@/lib/utils';
 
 /**
@@ -24,7 +24,13 @@ export function EvaluationsPage() {
       // The run is persisted server-side; the Runs list reads it from /api/runs.
       navigate(`/runs/${run.id}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Run failed to start');
+      const msg =
+        e instanceof ApiRequestError && (e.code === 'DB_UNAVAILABLE' || e.code === 'NETWORK_ERROR')
+          ? 'Service warming up or temporarily unavailable — please retry.'
+          : e instanceof Error
+            ? e.message
+            : 'Run failed to start';
+      toast.error(msg);
       setRunningId(null);
     }
   }

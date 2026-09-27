@@ -4,8 +4,19 @@ import { AlertTriangle, Check, ChevronRight, Loader2, Play, Wand2 } from 'lucide
 import { toast } from 'sonner';
 import { PageBody, PageHeader } from '@/components/crawlops/app-shell';
 import { cn } from '@/lib/utils';
-import { api } from '@/api/client';
+import { api, ApiRequestError } from '@/api/client';
 import type { CreateEvaluationInput } from '@crawlops/shared';
+
+/** Friendly message for an API error, special-casing transient DB outages. */
+function messageFor(err: unknown): string {
+  if (err instanceof ApiRequestError) {
+    if (err.code === 'DB_UNAVAILABLE' || err.code === 'NETWORK_ERROR') {
+      return 'the service is warming up or temporarily unavailable. Please try again in a moment.';
+    }
+    return err.message;
+  }
+  return err instanceof Error ? err.message : 'Request failed';
+}
 
 const inputClass =
   'w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/60 transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25 focus:outline-none aria-[invalid=true]:border-destructive/70';
@@ -125,15 +136,35 @@ export function CreateEvaluationPage() {
         minSources,
       };
 
-      // 1) real create -> 2) real evaluation id
-      const evaluation = await api.createEvaluation(input);
-      // 3) real run -> 4) real run id (persisted server-side)
-      const run = await api.runEvaluation(evaluation.id);
+      // Phase 1 — create the evaluation. A failure here is a CREATE failure.
+      let evaluation;
+      try {
+        evaluation = await api.createEvaluation(input);
+      } catch (err) {
+        setSubmitError(`Couldn't create the evaluation: ${messageFor(err)}`);
+        setSubmitting(false);
+        return;
+      }
+
+      // Phase 2 — start the run. A failure here is a RUN-START failure; the
+      // evaluation already exists, so send the user to the evaluations list.
+      let run;
+      try {
+        run = await api.runEvaluation(evaluation.id);
+      } catch (err) {
+        setSubmitError(
+          `Evaluation "${evaluation.name}" was created, but starting the run failed: ${messageFor(err)}`,
+        );
+        toast.error('Run failed to start — the evaluation was saved.');
+        setSubmitting(false);
+        return;
+      }
+
       toast.success(`Run ${run.status.toLowerCase()}`);
-      // 5) navigate to the real run details
       navigate(`/runs/${run.id}`);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Request failed');
+      // Unexpected client-side error (e.g. JSON.parse) — not a create/run call.
+      setSubmitError(messageFor(err));
       setSubmitting(false);
     }
   }

@@ -17,6 +17,7 @@ import {
 import type { AppContext } from '../context.js';
 import { serializeEvaluation, serializeRun } from '../serializers.js';
 import { validateUserUrls } from '../security/url-guard.js';
+import { isDbConnectivityError, DB_UNAVAILABLE_RESPONSE } from '../db-errors.js';
 
 const DEMO_USER_EMAIL = 'demo@crawlops.local';
 
@@ -50,22 +51,35 @@ export async function registerEvaluationRoutes(
       });
     }
 
-    const userId = await getOrCreateDemoUser(ctx);
-    const evaluation = await ctx.prisma.evaluation.create({
-      data: {
-        userId,
-        name: input.name,
-        taskPrompt: input.taskPrompt,
-        startingUrls: input.startingUrls,
-        strategy: input.strategy,
-        expectedSchema: (input.expectedSchema ?? undefined) as never,
-        maxRetries: input.maxRetries,
-        maxFirecrawlCalls: input.maxFirecrawlCalls,
-        timeoutMs: input.timeoutMs,
-        minSources: input.minSources,
-      },
-    });
-    return reply.code(201).send(ok(serializeEvaluation(evaluation)));
+    try {
+      const userId = await getOrCreateDemoUser(ctx);
+      const evaluation = await ctx.prisma.evaluation.create({
+        data: {
+          userId,
+          name: input.name,
+          taskPrompt: input.taskPrompt,
+          startingUrls: input.startingUrls,
+          strategy: input.strategy,
+          expectedSchema: (input.expectedSchema ?? undefined) as never,
+          maxRetries: input.maxRetries,
+          maxFirecrawlCalls: input.maxFirecrawlCalls,
+          timeoutMs: input.timeoutMs,
+          minSources: input.minSources,
+        },
+      });
+      return reply.code(201).send(ok(serializeEvaluation(evaluation)));
+    } catch (error) {
+      // Transient DB connectivity (e.g. cold-start before the pool is ready)
+      // -> safe, structured 503. Real details are logged, never sent to clients.
+      if (isDbConnectivityError(error)) {
+        ctx.logger.error(
+          { err: error instanceof Error ? error.message : String(error) },
+          'create evaluation: database unavailable',
+        );
+        return reply.code(503).send(DB_UNAVAILABLE_RESPONSE);
+      }
+      throw error; // genuine bug -> handled by the global error handler
+    }
   });
 
   // List evaluations
@@ -85,10 +99,6 @@ export async function registerEvaluationRoutes(
 
   // Run an evaluation
   app.post<{ Params: { id: string } }>('/api/evaluations/:id/run', async (request, reply) => {
-    const evaluation = await ctx.prisma.evaluation.findUnique({ where: { id: request.params.id } });
-    if (!evaluation) {
-      return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Evaluation not found' } });
-    }
     if (!ctx.orchestrator) {
       return reply.code(503).send({
         error: {
@@ -99,14 +109,30 @@ export async function registerEvaluationRoutes(
       });
     }
 
-    // Create the run as PENDING, then execute in-process (MVP JobRunner).
-    const run = await ctx.prisma.run.create({
-      data: {
-        evaluationId: evaluation.id,
-        status: RunStatus.PENDING,
-        strategy: (evaluation.strategy as ExecutionStrategy) ?? ExecutionStrategy.SEARCH,
-      },
-    });
+    let run;
+    try {
+      const evaluation = await ctx.prisma.evaluation.findUnique({ where: { id: request.params.id } });
+      if (!evaluation) {
+        return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Evaluation not found' } });
+      }
+      // Create the run as PENDING, then execute in-process (MVP JobRunner).
+      run = await ctx.prisma.run.create({
+        data: {
+          evaluationId: evaluation.id,
+          status: RunStatus.PENDING,
+          strategy: (evaluation.strategy as ExecutionStrategy) ?? ExecutionStrategy.SEARCH,
+        },
+      });
+    } catch (error) {
+      if (isDbConnectivityError(error)) {
+        ctx.logger.error(
+          { err: error instanceof Error ? error.message : String(error) },
+          'start run: database unavailable',
+        );
+        return reply.code(503).send(DB_UNAVAILABLE_RESPONSE);
+      }
+      throw error;
+    }
 
     try {
       await ctx.orchestrator.executeRun(run.id);

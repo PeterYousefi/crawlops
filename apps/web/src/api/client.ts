@@ -24,15 +24,38 @@ import type {
 //   points at the Container Apps API URL, e.g. https://crawlops-api....azurecontainerapps.io
 const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
+/** Error thrown by the API client, carrying the server's structured code. */
+export class ApiRequestError extends Error {
+  readonly code: string;
+  readonly status: number;
+  constructor(message: string, code: string, status: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-  const json = (await res.json()) as { data: T } | ApiError;
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+    });
+  } catch {
+    // Network-level failure (server unreachable / CORS / offline).
+    throw new ApiRequestError('Network error — could not reach the API.', 'NETWORK_ERROR', 0);
+  }
+  let json: { data: T } | ApiError;
+  try {
+    json = (await res.json()) as { data: T } | ApiError;
+  } catch {
+    throw new ApiRequestError(`Unexpected response (${res.status}).`, 'BAD_RESPONSE', res.status);
+  }
   if (!res.ok || 'error' in json) {
-    const message = 'error' in json ? json.error.message : `Request failed (${res.status})`;
-    throw new Error(message);
+    const err = 'error' in json ? json.error : { code: 'UNKNOWN', message: `Request failed (${res.status})` };
+    throw new ApiRequestError(err.message, err.code, res.status);
   }
   return json.data;
 }
