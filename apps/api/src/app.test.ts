@@ -46,6 +46,27 @@ describe('GET /api/health', () => {
   });
 });
 
+describe('empty-body JSON POST tolerance', () => {
+  it('does not 500 when Content-Type is application/json but the body is empty', async () => {
+    const ctx = stubContext();
+    ctx.prisma = {
+      evaluation: { findUnique: async () => ({ id: 'e1', strategy: 'SEARCH' }) },
+    } as unknown as AppContext['prisma'];
+    const app = await buildApp(ctx);
+    // Body-less POST with a JSON content-type (what the browser sent). With the
+    // custom content-type parser this must NOT be a 500; here it returns 503
+    // because Firecrawl/orchestrator is absent in the stub — not an empty-body 500.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/evaluations/e1/run',
+      headers: { 'content-type': 'application/json' },
+      payload: '',
+    });
+    expect(res.statusCode).not.toBe(500);
+    await app.close();
+  });
+});
+
 describe('GET /api/ready', () => {
   it('returns 503 when the database is not configured', async () => {
     const app = await buildApp(stubContext());

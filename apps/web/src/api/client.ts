@@ -37,11 +37,17 @@ export class ApiRequestError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Only send a JSON Content-Type when there is actually a JSON body. Sending
+  // `Content-Type: application/json` on a body-less POST (e.g. the run trigger)
+  // makes the server's JSON body parser reject the empty body with a 500.
+  const headers: Record<string, string> = { ...(init?.headers as Record<string, string>) };
+  if (init?.body != null) headers['Content-Type'] = 'application/json';
+
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
       ...init,
+      headers,
     });
   } catch {
     // Network-level failure (server unreachable / CORS / offline).
