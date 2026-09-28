@@ -167,6 +167,54 @@ export const metricsSchema = z.object({
 });
 export type Metrics = z.infer<typeof metricsSchema>;
 
+// ---- Reliability analytics (per evaluation) ----
+
+/** A lightweight run row used inside the analytics response. */
+export const analyticsRunSchema = z.object({
+  id: z.string(),
+  strategy: strategySchema,
+  status: runStatusSchema,
+  overallScore: z.number().min(0).max(1).nullable(),
+  durationMs: z.number().int().nullable(),
+  sourceCount: z.number().int(),
+  errorCategory: failureCategorySchema.nullable(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type AnalyticsRun = z.infer<typeof analyticsRunSchema>;
+
+/**
+ * Reliability analytics for one evaluation, computed from existing persisted
+ * runs only. Metrics are `null` when there is no meaningful data (never faked).
+ */
+export const analyticsResponseSchema = z.object({
+  evaluationId: z.string(),
+  evaluationName: z.string(),
+  window: z.object({
+    limit: z.number().int(),
+    totalRuns: z.number().int(),
+    /** Terminal = SUCCESS | PARTIAL | FAILED (excludes RUNNING/PENDING). */
+    terminalRuns: z.number().int(),
+  }),
+  summary: z.object({
+    /** SUCCESS terminal runs / all terminal runs. Null when no terminal runs. */
+    successRate: z.number().min(0).max(1).nullable(),
+    /** Mean overallScore over runs that have a score. Null when none. */
+    averageScore: z.number().min(0).max(1).nullable(),
+    /** Mean durationMs over terminal runs with a known duration. Null when none. */
+    averageDurationMs: z.number().nullable(),
+    /** Mean source count over terminal runs. Null when no terminal runs. */
+    averageSourceCount: z.number().nullable(),
+  }),
+  /** Count of runs by status within the window (all statuses present). */
+  statusCounts: z.record(z.number().int()),
+  /** Real persisted failure categories among terminal FAILED/PARTIAL runs. */
+  failureBreakdown: z.array(z.object({ category: failureCategorySchema, count: z.number().int() })),
+  recentRuns: z.array(analyticsRunSchema),
+});
+export type AnalyticsResponse = z.infer<typeof analyticsResponseSchema>;
+
 // ---- Response envelope ----
 
 export const apiErrorSchema = z.object({

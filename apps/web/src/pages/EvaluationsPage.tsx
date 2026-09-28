@@ -65,7 +65,12 @@ export function EvaluationsPage() {
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{e.name}</span>
+                    <Link
+                      to={`/evaluations/${e.id}`}
+                      className="text-sm font-medium text-foreground hover:text-primary hover:underline"
+                    >
+                      {e.name}
+                    </Link>
                     <span className="font-mono text-[11px] text-muted-foreground">{e.id}</span>
                   </div>
                   <p className="mt-1 max-w-2xl text-xs text-muted-foreground">{e.taskPrompt}</p>

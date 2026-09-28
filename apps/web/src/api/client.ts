@@ -14,6 +14,7 @@ import type {
   Run,
   RunReport,
   RunListItem,
+  AnalyticsResponse,
   ApiError,
 } from '@crawlops/shared';
 
@@ -76,6 +77,8 @@ export const api = {
 
   listEvaluations: () => request<Evaluation[]>('/api/evaluations'),
   getEvaluation: (id: string) => request<Evaluation>(`/api/evaluations/${id}`),
+  getAnalytics: (id: string, limit = 20) =>
+    request<AnalyticsResponse>(`/api/evaluations/${id}/analytics?limit=${limit}`),
   createEvaluation: (input: CreateEvaluationInput) =>
     request<Evaluation>('/api/evaluations', {
       method: 'POST',

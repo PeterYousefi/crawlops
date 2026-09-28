@@ -14,10 +14,15 @@ import {
   CrawlOpsError,
   FailureCategory,
 } from '@crawlops/shared';
+import type { AnalyticsRun } from '@crawlops/shared';
 import type { AppContext } from '../context.js';
 import { serializeEvaluation, serializeRun } from '../serializers.js';
 import { validateUserUrls } from '../security/url-guard.js';
 import { isDbConnectivityError, DB_UNAVAILABLE_RESPONSE } from '../db-errors.js';
+import { computeAnalytics } from '../analytics.js';
+
+const ANALYTICS_DEFAULT_LIMIT = 20;
+const ANALYTICS_MAX_LIMIT = 100;
 
 const DEMO_USER_EMAIL = 'demo@crawlops.local';
 
@@ -108,6 +113,61 @@ export async function registerEvaluationRoutes(
     }
     return ok(serializeEvaluation(row));
   });
+
+  // Reliability analytics for one evaluation (read-only; existing runs only).
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    '/api/evaluations/:id/analytics',
+    async (request, reply) => {
+      const evaluation = await ctx.prisma.evaluation.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, name: true },
+      });
+      if (!evaluation) {
+        return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Evaluation not found' } });
+      }
+
+      const raw = Number(request.query.limit);
+      const limit = Number.isFinite(raw)
+        ? Math.min(ANALYTICS_MAX_LIMIT, Math.max(1, Math.trunc(raw)))
+        : ANALYTICS_DEFAULT_LIMIT;
+
+      // Lightweight rows only: run fields + score + a COUNT of sources (no full
+      // Source rows fetched). Newest first, limited.
+      const rows = await ctx.prisma.run.findMany({
+        where: { evaluationId: evaluation.id },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          strategy: true,
+          status: true,
+          durationMs: true,
+          errorCategory: true,
+          startedAt: true,
+          finishedAt: true,
+          createdAt: true,
+          evaluationResult: { select: { overallScore: true } },
+          _count: { select: { sources: true } },
+        },
+      });
+
+      const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
+      const analyticsRuns: AnalyticsRun[] = rows.map((r) => ({
+        id: r.id,
+        strategy: r.strategy as AnalyticsRun['strategy'],
+        status: r.status as AnalyticsRun['status'],
+        overallScore: r.evaluationResult ? r.evaluationResult.overallScore : null,
+        durationMs: r.durationMs,
+        sourceCount: r._count.sources,
+        errorCategory: (r.errorCategory as AnalyticsRun['errorCategory']) ?? null,
+        startedAt: iso(r.startedAt),
+        finishedAt: iso(r.finishedAt),
+        createdAt: r.createdAt.toISOString(),
+      }));
+
+      return ok(computeAnalytics(evaluation.id, evaluation.name, limit, analyticsRuns));
+    },
+  );
 
   // Run an evaluation
   app.post<{ Params: { id: string } }>('/api/evaluations/:id/run', async (request, reply) => {

@@ -125,6 +125,75 @@ describe('AGENT requires a schema', () => {
   });
 });
 
+describe('GET /api/evaluations/:id/analytics', () => {
+  // F. Unknown evaluation -> 404.
+  it('returns 404 for an unknown evaluation id', async () => {
+    const ctx = stubContext();
+    ctx.prisma = {
+      evaluation: { findUnique: async () => null },
+    } as unknown as AppContext['prisma'];
+    const app = await buildApp(ctx);
+    const res = await app.inject({ method: 'GET', url: '/api/evaluations/nope/analytics' });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it('computes analytics from persisted runs (mixed success/failed)', async () => {
+    const ctx = stubContext();
+    const now = new Date();
+    ctx.prisma = {
+      evaluation: { findUnique: async () => ({ id: 'e1', name: 'My Eval' }) },
+      run: {
+        findMany: async () => [
+          {
+            id: 'r1', strategy: 'AGENT', status: 'SUCCESS', durationMs: 1000,
+            errorCategory: null, startedAt: now, finishedAt: now, createdAt: now,
+            evaluationResult: { overallScore: 1 }, _count: { sources: 4 },
+          },
+          {
+            id: 'r2', strategy: 'AGENT', status: 'FAILED', durationMs: 2000,
+            errorCategory: 'INVALID_SCHEMA', startedAt: now, finishedAt: now, createdAt: now,
+            evaluationResult: null, _count: { sources: 0 },
+          },
+        ],
+      },
+    } as unknown as AppContext['prisma'];
+    const app = await buildApp(ctx);
+    const res = await app.inject({ method: 'GET', url: '/api/evaluations/e1/analytics?limit=30' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { data: import('@crawlops/shared').AnalyticsResponse };
+    const d = body.data;
+    expect(d.evaluationName).toBe('My Eval');
+    expect(d.window.limit).toBe(30);
+    expect(d.window.terminalRuns).toBe(2);
+    expect(d.summary.successRate).toBe(0.5);
+    expect(d.summary.averageScore).toBe(1); // only r1 has a score
+    expect(d.summary.averageSourceCount).toBe(2); // (4+0)/2
+    expect(d.failureBreakdown).toEqual([{ category: 'INVALID_SCHEMA', count: 1 }]);
+    expect(d.recentRuns[0]!.sourceCount).toBe(4);
+    await app.close();
+  });
+
+  it('clamps limit to the max (100)', async () => {
+    const ctx = stubContext();
+    let usedTake = 0;
+    ctx.prisma = {
+      evaluation: { findUnique: async () => ({ id: 'e1', name: 'E' }) },
+      run: {
+        findMany: async (args: { take: number }) => {
+          usedTake = args.take;
+          return [];
+        },
+      },
+    } as unknown as AppContext['prisma'];
+    const app = await buildApp(ctx);
+    const res = await app.inject({ method: 'GET', url: '/api/evaluations/e1/analytics?limit=99999' });
+    expect(res.statusCode).toBe(200);
+    expect(usedTake).toBe(100);
+    await app.close();
+  });
+});
+
 describe('GET /api/ready', () => {
   it('returns 503 when the database is not configured', async () => {
     const app = await buildApp(stubContext());
