@@ -6,6 +6,14 @@ It runs [Firecrawl](https://firecrawl.dev)-powered research tasks, validates str
 
 CrawlOps is **not** a crawler or a Firecrawl replacement. Firecrawl handles web search, scraping, and structured research. CrawlOps sits *above* it as evaluation, observability, and regression infrastructure: it asks "did this research workflow actually satisfy its contract, and does it keep working over time?"
 
+## Links
+
+- **Live demo:** https://crawlops-web.redfield-5f7e6fbf.canadacentral.azurecontainerapps.io
+- **Demo video:** https://youtu.be/1shisrFzWMs
+- **Presentation:** [docs/CrawlOps-presentation.pdf](docs/CrawlOps-presentation.pdf)
+
+> The live demo is a scale-to-zero deployment, so the first request may take a few seconds to cold-start.
+
 ![CrawlOps reliability analytics](docs/images/reliability-analytics.png)
 
 ---
