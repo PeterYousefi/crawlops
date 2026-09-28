@@ -17,6 +17,7 @@ import {
   EvaluationRecommendation,
 } from './enums.js';
 import { FailureCategory } from './errors.js';
+import { SourceAuthority } from './source-authority.js';
 
 // ---- Primitives ----
 
@@ -57,6 +58,8 @@ export type Evaluation = z.infer<typeof evaluationSchema>;
 
 // ---- Sources ----
 
+export const sourceAuthoritySchema = z.nativeEnum(SourceAuthority);
+
 export const sourceSchema = z.object({
   id: z.string(),
   url: z.string(),
@@ -65,8 +68,27 @@ export const sourceSchema = z.object({
   rank: z.number().int().nullable(),
   contentRef: z.string().nullable(),
   retrievedAt: z.string(),
+  /**
+   * Authority classification derived at read time from `url` (never persisted).
+   * Present on API responses; estimates provenance, not truth.
+   */
+  domain: z.string().nullable(),
+  authority: sourceAuthoritySchema,
+  authorityReason: z.string(),
 });
 export type Source = z.infer<typeof sourceSchema>;
+
+/** Compact per-run source-quality summary, derived from source URLs. */
+export const sourceQualitySchema = z.object({
+  totalSources: z.number().int(),
+  primarySources: z.number().int(),
+  secondarySources: z.number().int(),
+  communitySources: z.number().int(),
+  unknownSources: z.number().int(),
+  /** primary / total; null when there are zero sources. */
+  primaryShare: z.number().min(0).max(1).nullable(),
+});
+export type SourceQuality = z.infer<typeof sourceQualitySchema>;
 
 // ---- Deterministic checks ----
 
@@ -136,6 +158,8 @@ export const runReportSchema = runSchema.extend({
   evaluationResult: evaluationResultSchema.nullable(),
   /** The normalized final output (structured or text), stored per run. */
   finalOutput: z.unknown().nullable(),
+  /** Source-quality summary derived from source URLs (read-time; not persisted). */
+  sourceQuality: sourceQualitySchema,
 });
 export type RunReport = z.infer<typeof runReportSchema>;
 
@@ -177,6 +201,11 @@ export const analyticsRunSchema = z.object({
   overallScore: z.number().min(0).max(1).nullable(),
   durationMs: z.number().int().nullable(),
   sourceCount: z.number().int(),
+  /**
+   * Primary-source share for this run (derived from its source URLs at read
+   * time). Null when the run has zero sources. Never persisted.
+   */
+  primaryShare: z.number().min(0).max(1).nullable(),
   errorCategory: failureCategorySchema.nullable(),
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
@@ -206,6 +235,12 @@ export const analyticsResponseSchema = z.object({
     averageDurationMs: z.number().nullable(),
     /** Mean source count over terminal runs. Null when no terminal runs. */
     averageSourceCount: z.number().nullable(),
+    /**
+     * Mean primary-source share over terminal runs that have at least one
+     * source (runs with zero sources are excluded from the denominator).
+     * Null when no such run exists. Estimates provenance, not truth.
+     */
+    averagePrimaryShare: z.number().min(0).max(1).nullable(),
   }),
   /** Count of runs by status within the window (all statuses present). */
   statusCounts: z.record(z.number().int()),

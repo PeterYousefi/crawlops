@@ -3,7 +3,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { ok, type RunListItem } from '@crawlops/shared';
+import { ok, computeAuthorityMetrics, type RunListItem } from '@crawlops/shared';
 import type { AppContext } from '../context.js';
 import {
   serializeRun,
@@ -55,6 +55,10 @@ export async function registerRunRoutes(app: FastifyInstance, ctx: AppContext): 
       return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Run not found' } });
     }
 
+    // Source-quality summary derived from the run's persisted source URLs. This
+    // reuses the rows we already fetched (no extra query, no N+1).
+    const quality = computeAuthorityMetrics(run.sources.map((s) => s.url));
+
     return ok({
       ...serializeRun(run),
       evaluation: serializeEvaluation(run.evaluation),
@@ -64,6 +68,14 @@ export async function registerRunRoutes(app: FastifyInstance, ctx: AppContext): 
         ? serializeEvaluationResult(run.evaluationResult)
         : null,
       finalOutput: run.finalOutput ?? null,
+      sourceQuality: {
+        totalSources: quality.totalSources,
+        primarySources: quality.primarySources,
+        secondarySources: quality.secondarySources,
+        communitySources: quality.communitySources,
+        unknownSources: quality.unknownSources,
+        primaryShare: quality.primaryShare,
+      },
     });
   });
 

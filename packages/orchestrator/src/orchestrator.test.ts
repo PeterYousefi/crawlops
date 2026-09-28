@@ -98,7 +98,15 @@ describe('Orchestrator', () => {
     const orch = new Orchestrator({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       prisma: fake.prisma as any,
-      firecrawl: new MockFirecrawlClient(),
+      // Use an official (PRIMARY-authority) source so the non-critical
+      // source_authority check passes and the run is a clean SUCCESS.
+      firecrawl: new MockFirecrawlClient({
+        searchResult: {
+          sources: [
+            { url: 'https://github.com/example/repo', title: 'Repo', description: null, rank: 1, content: null },
+          ],
+        },
+      }),
       evaluator,
       blobs: noopBlobs,
       maxSearchResults: 3,

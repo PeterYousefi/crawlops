@@ -6,13 +6,14 @@
  *      consistent and typed.
  */
 
-import type {
-  Evaluation as EvaluationContract,
-  Run as RunContract,
-  Source as SourceContract,
-  ExecutionAttempt as AttemptContract,
-  EvaluationResult as EvaluationResultContract,
-  EvaluationCheck,
+import {
+  classifySource,
+  type Evaluation as EvaluationContract,
+  type Run as RunContract,
+  type Source as SourceContract,
+  type ExecutionAttempt as AttemptContract,
+  type EvaluationResult as EvaluationResultContract,
+  type EvaluationCheck,
 } from '@crawlops/shared';
 
 type Dateish = Date | null;
@@ -88,6 +89,9 @@ interface SourceRow {
 }
 
 export function serializeSource(s: SourceRow): SourceContract {
+  // Authority is DERIVED from the URL at read time (never stored). This keeps
+  // historical rows classifiable with no migration/backfill.
+  const cls = classifySource(s.url);
   return {
     id: s.id,
     url: s.url,
@@ -96,6 +100,9 @@ export function serializeSource(s: SourceRow): SourceContract {
     rank: s.rank,
     contentRef: s.contentRef,
     retrievedAt: s.retrievedAt.toISOString(),
+    domain: cls.domain,
+    authority: cls.authority,
+    authorityReason: cls.reason,
   };
 }
 

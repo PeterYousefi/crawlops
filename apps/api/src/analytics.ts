@@ -13,6 +13,8 @@
  * - averageScore = mean of runs that actually have a score; null when none.
  * - averageDurationMs = mean over terminal runs with a known duration; null when none.
  * - averageSourceCount = mean over terminal runs; null when no terminal runs.
+ * - averagePrimaryShare = mean primary-source share over terminal runs that
+ *   have sources; null when none. Estimates provenance, not truth.
  * - failureBreakdown = real persisted errorCategory of terminal FAILED/PARTIAL runs.
  */
 
@@ -50,6 +52,14 @@ export function computeAnalytics(
 
   const averageSourceCount = mean(terminal.map((r) => r.sourceCount));
 
+  // Average primary-source share over terminal runs that actually have a share
+  // (i.e. have sources). Runs with zero sources are excluded from the mean so
+  // an empty run does not drag the provenance signal to a fake 0.
+  const shares = terminal
+    .filter((r) => r.primaryShare != null)
+    .map((r) => r.primaryShare as number);
+  const averagePrimaryShare = mean(shares);
+
   // Status counts across the whole window (all statuses that appear).
   const statusCounts: Record<string, number> = {};
   for (const r of runs) statusCounts[r.status] = (statusCounts[r.status] ?? 0) + 1;
@@ -69,7 +79,7 @@ export function computeAnalytics(
     evaluationId,
     evaluationName,
     window: { limit, totalRuns: runs.length, terminalRuns: terminal.length },
-    summary: { successRate, averageScore, averageDurationMs, averageSourceCount },
+    summary: { successRate, averageScore, averageDurationMs, averageSourceCount, averagePrimaryShare },
     statusCounts,
     failureBreakdown,
     recentRuns: runs,

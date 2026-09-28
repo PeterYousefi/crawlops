@@ -10,6 +10,7 @@ function run(over: Partial<AnalyticsRun>): AnalyticsRun {
     overallScore: 1,
     durationMs: 1000,
     sourceCount: 3,
+    primaryShare: null,
     errorCategory: null,
     startedAt: '2026-01-01T00:00:00.000Z',
     finishedAt: '2026-01-01T00:00:01.000Z',

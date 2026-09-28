@@ -148,12 +148,19 @@ describe('GET /api/evaluations/:id/analytics', () => {
           {
             id: 'r1', strategy: 'AGENT', status: 'SUCCESS', durationMs: 1000,
             errorCategory: null, startedAt: now, finishedAt: now, createdAt: now,
-            evaluationResult: { overallScore: 1 }, _count: { sources: 4 },
+            evaluationResult: { overallScore: 1 },
+            // 4 sources: 3 PRIMARY (github/official) + 1 UNKNOWN -> share 0.75.
+            sources: [
+              { url: 'https://github.com/a' },
+              { url: 'https://docs.github.com/b' },
+              { url: 'https://nasa.gov/c' },
+              { url: 'https://some-random-blogsite.example/d' },
+            ],
           },
           {
             id: 'r2', strategy: 'AGENT', status: 'FAILED', durationMs: 2000,
             errorCategory: 'INVALID_SCHEMA', startedAt: now, finishedAt: now, createdAt: now,
-            evaluationResult: null, _count: { sources: 0 },
+            evaluationResult: null, sources: [],
           },
         ],
       },
@@ -169,8 +176,11 @@ describe('GET /api/evaluations/:id/analytics', () => {
     expect(d.summary.successRate).toBe(0.5);
     expect(d.summary.averageScore).toBe(1); // only r1 has a score
     expect(d.summary.averageSourceCount).toBe(2); // (4+0)/2
+    // avg primary share over runs WITH sources: only r1 (0.75); r2 has 0 sources.
+    expect(d.summary.averagePrimaryShare).toBeCloseTo(0.75, 5);
     expect(d.failureBreakdown).toEqual([{ category: 'INVALID_SCHEMA', count: 1 }]);
     expect(d.recentRuns[0]!.sourceCount).toBe(4);
+    expect(d.recentRuns[0]!.primaryShare).toBeCloseTo(0.75, 5);
     await app.close();
   });
 

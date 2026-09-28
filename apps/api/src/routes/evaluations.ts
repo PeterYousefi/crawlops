@@ -14,7 +14,7 @@ import {
   CrawlOpsError,
   FailureCategory,
 } from '@crawlops/shared';
-import type { AnalyticsRun } from '@crawlops/shared';
+import { computeAuthorityMetrics, type AnalyticsRun } from '@crawlops/shared';
 import type { AppContext } from '../context.js';
 import { serializeEvaluation, serializeRun } from '../serializers.js';
 import { validateUserUrls } from '../security/url-guard.js';
@@ -131,8 +131,11 @@ export async function registerEvaluationRoutes(
         ? Math.min(ANALYTICS_MAX_LIMIT, Math.max(1, Math.trunc(raw)))
         : ANALYTICS_DEFAULT_LIMIT;
 
-      // Lightweight rows only: run fields + score + a COUNT of sources (no full
-      // Source rows fetched). Newest first, limited.
+      // Lightweight rows: run fields + score + source URLs (url only, no
+      // content). Selecting the `sources.url` relation here is a SINGLE batched
+      // query for the whole window (Prisma fetches children in one query, not
+      // per-run) — bounded by `limit` (default 20, max 100). No N+1. We derive
+      // per-run primaryShare from these URLs; authority is never persisted.
       const rows = await ctx.prisma.run.findMany({
         where: { evaluationId: evaluation.id },
         orderBy: { createdAt: 'desc' },
@@ -147,23 +150,27 @@ export async function registerEvaluationRoutes(
           finishedAt: true,
           createdAt: true,
           evaluationResult: { select: { overallScore: true } },
-          _count: { select: { sources: true } },
+          sources: { select: { url: true } },
         },
       });
 
       const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
-      const analyticsRuns: AnalyticsRun[] = rows.map((r) => ({
-        id: r.id,
-        strategy: r.strategy as AnalyticsRun['strategy'],
-        status: r.status as AnalyticsRun['status'],
-        overallScore: r.evaluationResult ? r.evaluationResult.overallScore : null,
-        durationMs: r.durationMs,
-        sourceCount: r._count.sources,
-        errorCategory: (r.errorCategory as AnalyticsRun['errorCategory']) ?? null,
-        startedAt: iso(r.startedAt),
-        finishedAt: iso(r.finishedAt),
-        createdAt: r.createdAt.toISOString(),
-      }));
+      const analyticsRuns: AnalyticsRun[] = rows.map((r) => {
+        const authority = computeAuthorityMetrics(r.sources.map((s) => s.url));
+        return {
+          id: r.id,
+          strategy: r.strategy as AnalyticsRun['strategy'],
+          status: r.status as AnalyticsRun['status'],
+          overallScore: r.evaluationResult ? r.evaluationResult.overallScore : null,
+          durationMs: r.durationMs,
+          sourceCount: authority.totalSources,
+          primaryShare: authority.primaryShare,
+          errorCategory: (r.errorCategory as AnalyticsRun['errorCategory']) ?? null,
+          startedAt: iso(r.startedAt),
+          finishedAt: iso(r.finishedAt),
+          createdAt: r.createdAt.toISOString(),
+        };
+      });
 
       return ok(computeAnalytics(evaluation.id, evaluation.name, limit, analyticsRuns));
     },

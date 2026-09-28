@@ -279,9 +279,9 @@ export function RunDetailsPage() {
           )}
         </Section>
 
-        {/* sources — real */}
+        {/* sources — real, with read-time authority classification */}
         <Section index={4} title="Sources" meta={`${run.sources.length} retrieved`}>
-          <SourceList sources={run.sources} />
+          <SourceList sources={run.sources} quality={run.sourceQuality} />
         </Section>
 
         {/* technical details — real output / schema / task */}

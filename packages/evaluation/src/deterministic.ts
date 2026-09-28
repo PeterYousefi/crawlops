@@ -15,6 +15,7 @@ import addFormatsImport from 'ajv-formats';
 import {
   EvaluationRecommendation,
   RunStatus,
+  computeAuthorityMetrics,
   type EvaluationCheck,
 } from '@crawlops/shared';
 import type { EvaluationInput, EvaluationOutput, EvaluatorProvider } from './types.js';
@@ -186,7 +187,26 @@ export class DeterministicEvaluator implements EvaluatorProvider {
       ),
     );
 
-    // 6) Schema validation (critical) — only when an expected schema is given.
+    // 6) Source authority (NON-CRITICAL) — did the research use at least one
+    //    authoritative (PRIMARY) source? Computed deterministically from source
+    //    URLs only (no LLM, no network). This estimates PROVENANCE, not truth:
+    //    a PRIMARY source is not assumed correct, nor a COMMUNITY one incorrect.
+    //    Non-critical so a good result with weak sources becomes PARTIAL, never
+    //    a hard FAILED. With zero sources it fails non-critically (no PRIMARY);
+    //    the critical source_count check separately governs FAILED vs not.
+    {
+      const authority = computeAuthorityMetrics(input.sources.map((s) => s.url));
+      const passed = authority.primarySources >= 1;
+      const sharePct = authority.primaryShare != null ? Math.round(authority.primaryShare * 100) : null;
+      const detail = passed
+        ? `${authority.primarySources}/${authority.totalSources} source(s) are PRIMARY (${sharePct}% primary share). Authority estimates provenance, not truth.`
+        : authority.totalSources === 0
+          ? 'No sources to assess for authority. Authority estimates provenance, not truth.'
+          : `No PRIMARY (first-party/official/gov/academic) source among ${authority.totalSources} source(s). Authority estimates provenance, not truth.`;
+      checks.push(check('source_authority', 'Used authoritative sources', passed, false, detail));
+    }
+
+    // 7) Schema validation (critical) — only when an expected schema is given.
     if (input.expectedSchema) {
       let validate: ValidateFunction | null = null;
       let compileError: string | null = null;

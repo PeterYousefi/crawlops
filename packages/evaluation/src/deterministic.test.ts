@@ -9,9 +9,12 @@ function baseInput(overrides: Partial<EvaluationInput> = {}): EvaluationInput {
   return {
     taskPrompt: 'Find pricing',
     output: { price: '$20' },
+    // Default sources include an official (PRIMARY) domain so the new
+    // non-critical source_authority check passes for the baseline "all pass"
+    // cases. Tests that target other checks override `sources` explicitly.
     sources: [
-      { url: 'https://example.com/a', title: 'A', description: null, content: null },
-      { url: 'https://example.com/b', title: 'B', description: null, content: null },
+      { url: 'https://github.com/a', title: 'A', description: null, content: null },
+      { url: 'https://docs.github.com/b', title: 'B', description: null, content: null },
     ],
     expectedSchema: null,
     minSources: 1,
@@ -126,5 +129,74 @@ describe('DeterministicEvaluator', () => {
     );
     expect(result.checks.find((c) => c.id === 'schema_validation')?.passed).toBe(true);
     expect(result.status).toBe(RunStatus.SUCCESS);
+  });
+
+  // ---- Source authority check (non-critical) ----
+
+  // F. Zero sources: source_count (critical) fails => FAILED; the non-critical
+  //    source_authority check is also present and failing.
+  it('F: zero sources -> authority check fails (non-critical); run FAILED via source_count', async () => {
+    const result = await evaluator.evaluate(baseInput({ sources: [], minSources: 1 }));
+    const authority = result.checks.find((c) => c.id === 'source_authority');
+    expect(authority).toBeDefined();
+    expect(authority?.passed).toBe(false);
+    expect(authority?.critical).toBe(false);
+    expect(result.status).toBe(RunStatus.FAILED); // driven by critical source_count
+  });
+
+  // G. Mix with >=1 primary -> authority check passes; all checks pass => SUCCESS.
+  it('G: mix with a primary source -> authority check passes, SUCCESS', async () => {
+    const result = await evaluator.evaluate(
+      baseInput({
+        minSources: 1,
+        sources: [
+          { url: 'https://github.com/a', title: null, description: null, content: null },
+          { url: 'https://docs.github.com/b', title: null, description: null, content: null },
+          { url: 'https://nasa.gov/c', title: null, description: null, content: null },
+          { url: 'https://techcrunch.com/d', title: null, description: null, content: null },
+          { url: 'https://reddit.com/r/e', title: null, description: null, content: null },
+        ],
+      }),
+    );
+    expect(result.checks.find((c) => c.id === 'source_authority')?.passed).toBe(true);
+    expect(result.status).toBe(RunStatus.SUCCESS);
+  });
+
+  // H. No primary sources but all critical checks pass -> PARTIAL.
+  it('H: no primary sources (all critical pass) -> PARTIAL', async () => {
+    const result = await evaluator.evaluate(
+      baseInput({
+        minSources: 1,
+        sources: [
+          { url: 'https://some-random-blog.example/x', title: null, description: null, content: null },
+          { url: 'https://reddit.com/r/y', title: null, description: null, content: null },
+        ],
+      }),
+    );
+    const authority = result.checks.find((c) => c.id === 'source_authority');
+    expect(authority?.passed).toBe(false);
+    expect(authority?.critical).toBe(false);
+    expect(result.status).toBe(RunStatus.PARTIAL);
+  });
+
+  // I. Critical schema failure + weak sources -> remains FAILED (not PARTIAL).
+  it('I: critical schema failure with weak sources stays FAILED', async () => {
+    const schema = {
+      type: 'object',
+      required: ['price', 'currency'],
+      properties: { price: { type: 'string' }, currency: { type: 'string' } },
+    };
+    const result = await evaluator.evaluate(
+      baseInput({
+        output: { price: '$20' }, // missing currency -> critical schema fail
+        expectedSchema: schema,
+        sources: [
+          { url: 'https://some-random-blog.example/x', title: null, description: null, content: null },
+        ],
+      }),
+    );
+    expect(result.checks.find((c) => c.id === 'schema_validation')?.passed).toBe(false);
+    expect(result.checks.find((c) => c.id === 'source_authority')?.passed).toBe(false);
+    expect(result.status).toBe(RunStatus.FAILED); // critical failure dominates
   });
 });

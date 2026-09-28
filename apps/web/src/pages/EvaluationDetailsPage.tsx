@@ -127,7 +127,7 @@ function Reliability({ data }: { data: AnalyticsResponse }) {
           title="Reliability"
           description={win.totalRuns === 1 ? 'Based on 1 run — not yet a trend.' : 'Observational summary of past runs.'}
         />
-        <div className="grid grid-cols-2 divide-border rounded-lg border border-border bg-surface sm:divide-x lg:grid-cols-4">
+        <div className="grid grid-cols-2 divide-border rounded-lg border border-border bg-surface sm:divide-x lg:grid-cols-5">
           <Stat
             label="Success rate"
             value={successPct != null ? `${successPct}%` : '—'}
@@ -144,6 +144,11 @@ function Reliability({ data }: { data: AnalyticsResponse }) {
             label="Average sources"
             value={summary.averageSourceCount != null ? summary.averageSourceCount.toFixed(1) : '—'}
             hint={basis ?? ''}
+          />
+          <Stat
+            label="Avg primary share"
+            value={summary.averagePrimaryShare != null ? `${Math.round(summary.averagePrimaryShare * 100)}%` : '—'}
+            hint="provenance, not truth"
           />
         </div>
       </section>

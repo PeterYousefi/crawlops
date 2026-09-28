@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { ExternalLink, Globe } from 'lucide-react';
-import type { Source } from '@crawlops/shared';
+import type { Source, SourceQuality } from '@crawlops/shared';
 import { Empty } from './primitives';
+import { AuthorityBadge } from './authority-badge';
 
 /** Extract a display domain from a URL, falling back to the raw string. */
 function domainOf(url: string): string {
@@ -42,15 +43,54 @@ function SourceDescription({ text }: { text: string }) {
   );
 }
 
-// Uses ONLY real API Source fields: url, title, description, rank.
-// Mock-only fields (tokens, excerpt, statusCode, usedFields) are intentionally
-// omitted rather than fabricated.
-export function SourceList({ sources }: { sources: Source[] }) {
+/**
+ * Compact source-quality summary. Authority estimates whether a source is close
+ * to the original organization/documentation (provenance), not correctness.
+ */
+function SourceQualitySummary({ quality }: { quality: SourceQuality }) {
+  const sharePct = quality.primaryShare != null ? `${Math.round(quality.primaryShare * 100)}%` : '—';
+  const rows: Array<[string, number | string]> = [
+    ['Primary', quality.primarySources],
+    ['Secondary', quality.secondarySources],
+    ['Community', quality.communitySources],
+    ['Unknown', quality.unknownSources],
+    ['Primary share', sharePct],
+  ];
+  return (
+    <div className="mb-3 rounded-lg border border-border bg-surface px-4 py-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+          Source quality
+        </span>
+        <span
+          className="text-[10.5px] text-muted-foreground/70"
+          title="Authority estimates whether a source is close to the original organization or documentation. It is not a truth score."
+        >
+          provenance estimate, not truth
+        </span>
+      </div>
+      <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-baseline justify-between gap-2 sm:flex-col sm:items-start sm:justify-start">
+            <dt className="text-[11px] text-muted-foreground">{label}</dt>
+            <dd className="font-mono text-sm tabular-nums">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+// Uses ONLY real API Source fields: url, title, description, rank, and the
+// read-time authority classification (domain/authority/authorityReason).
+export function SourceList({ sources, quality }: { sources: Source[]; quality?: SourceQuality }) {
   if (sources.length === 0) {
     return <Empty>No sources retrieved.</Empty>;
   }
   return (
-    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+    <>
+      {quality ? <SourceQualitySummary quality={quality} /> : null}
+      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
       {sources.map((s, i) => (
         <li key={s.id} className="group flex gap-3 px-4 py-3.5 transition-colors hover:bg-surface-raised">
           <span
@@ -65,6 +105,7 @@ export function SourceList({ sources }: { sources: Source[] }) {
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Globe className="h-3.5 w-3.5" />
                   <span className="font-mono">{domainOf(s.url)}</span>
+                  <AuthorityBadge authority={s.authority} title={s.authorityReason} />
                 </div>
                 <div className="mt-1 truncate text-sm font-medium">{s.title ?? '(untitled)'}</div>
                 <a
@@ -89,6 +130,7 @@ export function SourceList({ sources }: { sources: Source[] }) {
           </div>
         </li>
       ))}
-    </ul>
+      </ul>
+    </>
   );
 }
