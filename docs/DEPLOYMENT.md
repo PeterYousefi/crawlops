@@ -1,6 +1,6 @@
 # CrawlOps — Deployment
 
-> **Status:** the app is **production-deployable and the production container is verified locally**. No Azure resources are provisioned yet (cost = ~$0 during development). This document describes local dev, the production container, and the planned Azure deployment.
+> **Status:** deployed to **Azure Container Apps**. `crawlops-web` (nginx) and `crawlops-api` (Fastify) run as separate scale-to-zero containers, pulling private images from Azure Container Registry, backed by an Azure PostgreSQL Flexible Server. This document describes local dev, the production container image, and the high-level deployment process. It contains **no credentials, connection strings, or subscription identifiers** — those live only in the deployment environment.
 
 ## Local development
 
@@ -79,19 +79,28 @@ For the current MVP this is **not a problem**: the SEARCH strategy stores source
 
 **Deferred:** an `AzureBlobStore` (behind the existing `BlobStore` interface) will be added when SCRAPE/CRAWL workflows need to persist large page content. Until then, do not rely on `LocalBlobStore` for cloud functionality.
 
-## Cloud target: Azure (planned — not yet provisioned)
+## Cloud topology: Azure (deployed)
 
-| Concern | Azure service | For MVP? |
+| Concern | Azure service | State |
 | --- | --- | --- |
-| Frontend hosting | Azure Static Web Apps (Free) | ✅ |
-| API container | Azure Container Apps (scale-to-zero) | ✅ |
-| Image registry | Azure Container Registry (Basic) | ✅ |
-| Database | Azure Database for PostgreSQL Flexible Server (Burstable B1ms) | ✅ |
-| Object storage | Azure Blob Storage | ⏳ deferred |
-| Queue | Azure Service Bus | ⏳ later |
-| Secrets | Container Apps secrets (Key Vault later) | ✅ |
-| Observability | Application Insights | ⏳ later |
-| IaC / CI-CD | Terraform / GitHub Actions | ⏳ later |
+| Frontend hosting | Azure Container Apps — `crawlops-web` (nginx static SPA) | deployed |
+| API container | Azure Container Apps — `crawlops-api` (Fastify), scale-to-zero | deployed |
+| Image registry | Azure Container Registry (private, token-scoped pull) | deployed |
+| Database | Azure PostgreSQL Flexible Server | deployed |
+| Secrets | Container Apps secrets (database URL, Firecrawl key) | deployed |
+| Object storage | Azure Blob Storage | deferred (SEARCH/AGENT persist URLs/metadata, not large blobs) |
+| Queue / IaC / CI-CD | Service Bus / Terraform / GitHub Actions | not implemented |
+
+Both web and API scale to zero when idle. The frontend is served as a static SPA by nginx (not Azure Static Web Apps, which was unavailable in the target region).
+
+## Deployment process (high level)
+
+Deployments are **image-only** so probes, secrets, ingress, and scale settings are preserved:
+
+1. Build the platform-correct image and push it to the private ACR.
+2. Update the Container App to the new image tag.
+
+The web image bakes `VITE_API_URL` at build time; the API reads `DATABASE_URL`, `FIRECRAWL_API_KEY`, and `WEB_ORIGIN` from Container App secrets/env at runtime. Exact commands, tags, and identifiers are intentionally **not** stored in this repository.
 
 Portability: business logic depends on interfaces (`FirecrawlClient`, `EvaluatorProvider`, `BlobStore`, `JobRunner`), so moving clouds means swapping infrastructure, not rewriting the app.
 
@@ -100,8 +109,7 @@ Portability: business logic depends on interfaces (`FirecrawlClient`, `Evaluator
 | Item | State |
 | --- | --- |
 | Local Postgres via Docker | tested locally |
-| API production Dockerfile | tested locally (image builds + runs, full eval passes) |
-| Frontend production build (`VITE_API_URL`) | tested locally (bundle targets configured API) |
-| Prisma remote migrate / SSL support | supported + documented (not yet run against Azure) |
-| Azure resources (ACR, Container Apps, PostgreSQL, Static Web Apps) | not provisioned yet |
-| CI/CD, Terraform | planned |
+| API production Dockerfile | tested locally + deployed |
+| Frontend production build (`VITE_API_URL`) | tested locally + deployed |
+| Azure Container Apps (web + api), ACR, PostgreSQL Flexible Server | deployed |
+| Object storage, queue, CI/CD, Terraform | not implemented |
