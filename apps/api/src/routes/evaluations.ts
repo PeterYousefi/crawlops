@@ -51,6 +51,18 @@ export async function registerEvaluationRoutes(
       });
     }
 
+    // AGENT produces structured output, so it needs a target schema. Reject
+    // (safely, 400) rather than creating an evaluation that can never run.
+    if (input.strategy === ExecutionStrategy.AGENT && !input.expectedSchema) {
+      return reply.code(400).send({
+        error: {
+          code: 'AGENT_SCHEMA_REQUIRED',
+          category: FailureCategory.AGENT_SCHEMA_REQUIRED,
+          message: 'AGENT strategy requires an expected output schema.',
+        },
+      });
+    }
+
     try {
       const userId = await getOrCreateDemoUser(ctx);
       const evaluation = await ctx.prisma.evaluation.create({
@@ -114,6 +126,17 @@ export async function registerEvaluationRoutes(
       const evaluation = await ctx.prisma.evaluation.findUnique({ where: { id: request.params.id } });
       if (!evaluation) {
         return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Evaluation not found' } });
+      }
+      // Defensive: an AGENT evaluation with no schema can never produce a valid
+      // structured result. Reject before creating a useless Run row.
+      if (evaluation.strategy === ExecutionStrategy.AGENT && evaluation.expectedSchema == null) {
+        return reply.code(400).send({
+          error: {
+            code: 'AGENT_SCHEMA_REQUIRED',
+            category: FailureCategory.AGENT_SCHEMA_REQUIRED,
+            message: 'This AGENT evaluation has no expected schema, so it cannot produce a valid result.',
+          },
+        });
       }
       // Create the run as PENDING, then execute in-process (MVP JobRunner).
       run = await ctx.prisma.run.create({

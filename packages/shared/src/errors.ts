@@ -21,6 +21,10 @@ export const FailureCategory = {
   EVALUATOR_FAILURE: 'EVALUATOR_FAILURE',
   NETWORK_FAILURE: 'NETWORK_FAILURE',
   AUTH_ERROR: 'AUTH_ERROR',
+  /** Firecrawl Agent completed but returned no usable structured output. Retryable. */
+  AGENT_EMPTY_RESULT: 'AGENT_EMPTY_RESULT',
+  /** An AGENT run was requested without an expected schema (client error). */
+  AGENT_SCHEMA_REQUIRED: 'AGENT_SCHEMA_REQUIRED',
   UNKNOWN: 'UNKNOWN',
 } as const;
 
@@ -46,6 +50,44 @@ export class CrawlOpsError extends Error {
     this.category = options.category;
     this.retryable = options.retryable ?? false;
     this.cause = options.cause;
+  }
+}
+
+/**
+ * The subset of FailureCategory values that exist in the PostgreSQL enum.
+ * AGENT_EMPTY_RESULT / AGENT_SCHEMA_REQUIRED are API/taxonomy-level codes that
+ * are NOT in the DB enum (adding them would require a schema migration), so
+ * they must be mapped to a persistable value before writing to the database.
+ */
+export const PERSISTABLE_FAILURE_CATEGORIES: readonly FailureCategory[] = [
+  FailureCategory.TIMEOUT,
+  FailureCategory.RATE_LIMIT,
+  FailureCategory.FIRECRAWL_ERROR,
+  FailureCategory.NO_RESULTS,
+  FailureCategory.INVALID_SCHEMA,
+  FailureCategory.INSUFFICIENT_SOURCES,
+  FailureCategory.PARSING_ERROR,
+  FailureCategory.EVALUATOR_FAILURE,
+  FailureCategory.NETWORK_FAILURE,
+  FailureCategory.AUTH_ERROR,
+  FailureCategory.UNKNOWN,
+];
+
+/**
+ * Map any FailureCategory to a value the DB enum accepts. API-only categories
+ * are mapped to their closest persistable equivalent; the precise code is kept
+ * in the human-readable errorMessage by callers.
+ */
+export function toPersistableCategory(category: FailureCategory): FailureCategory {
+  switch (category) {
+    case FailureCategory.AGENT_EMPTY_RESULT:
+      return FailureCategory.NO_RESULTS;
+    case FailureCategory.AGENT_SCHEMA_REQUIRED:
+      return FailureCategory.INVALID_SCHEMA;
+    default:
+      return (PERSISTABLE_FAILURE_CATEGORIES as FailureCategory[]).includes(category)
+        ? category
+        : FailureCategory.UNKNOWN;
   }
 }
 

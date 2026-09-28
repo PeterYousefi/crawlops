@@ -159,6 +159,61 @@ describe('Orchestrator', () => {
     expect(status).toBe(RunStatus.FAILED);
   });
 
+  // Regression A: empty agent result on attempt 1, valid on attempt 2 -> retries and SUCCEEDS.
+  it('AGENT strategy: empty then valid -> 2 attempts, final SUCCESS', async () => {
+    const schema = { rockets: [{ name: 'string' }], comparison: 'string' };
+    const fake = makeFakePrisma({ strategy: 'AGENT', expectedSchema: schema, maxRetries: 2 });
+    const valid = { rockets: [{ name: 'Falcon 9' }], comparison: 'Leads on reuse.' };
+    const orch = new Orchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      prisma: fake.prisma as any,
+      firecrawl: new MockFirecrawlClient({
+        agentExtractSequence: [
+          { data: null, completed: true, sources: [] }, // attempt 1: empty
+          {
+            data: valid,
+            completed: true,
+            sources: [
+              { url: 'https://www.spacex.com/vehicles/falcon-9', title: null, description: null, rank: 1, content: null },
+            ],
+          }, // attempt 2: valid
+        ],
+      }),
+      evaluator,
+      blobs: noopBlobs,
+      maxSearchResults: 3,
+    });
+    const status = await orch.executeRun('run1');
+    expect(status).toBe(RunStatus.SUCCESS);
+    expect(fake.attempts).toHaveLength(2);
+    expect(fake.attempts[0]!.status).toBe(AttemptStatus.FAILED);
+    expect(fake.attempts[1]!.status).toBe(AttemptStatus.SUCCESS);
+    expect(fake.run.finalOutput).toEqual(valid);
+  });
+
+  // Regression B: every agent attempt empty -> retries exhausted -> FAILED w/ AGENT_EMPTY_RESULT.
+  it('AGENT strategy: all attempts empty -> retries exhausted, FAILED / AGENT_EMPTY_RESULT', async () => {
+    const schema = { rockets: [{ name: 'string' }], comparison: 'string' };
+    const fake = makeFakePrisma({ strategy: 'AGENT', expectedSchema: schema, maxRetries: 2 });
+    const orch = new Orchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      prisma: fake.prisma as any,
+      firecrawl: new MockFirecrawlClient({
+        agentExtractResult: { data: null, completed: true, sources: [] },
+      }),
+      evaluator,
+      blobs: noopBlobs,
+      maxSearchResults: 3,
+    });
+    const status = await orch.executeRun('run1');
+    expect(status).toBe(RunStatus.FAILED);
+    expect(fake.attempts).toHaveLength(3); // maxRetries 2 => 3 attempts
+    // The attempt error message carries the precise AGENT_EMPTY_RESULT code.
+    expect(String(fake.attempts[0]!.errorMessage)).toContain('AGENT_EMPTY_RESULT');
+    // Persisted (DB-safe) category maps to NO_RESULTS; run did NOT get mislabeled INVALID_SCHEMA.
+    expect(fake.run.errorCategory).toBe(FailureCategory.NO_RESULTS);
+  });
+
   it('retries on a retryable failure then fails after exhausting attempts', async () => {
     const fake = makeFakePrisma({ maxRetries: 2 });
     const rateLimit = new CrawlOpsError({

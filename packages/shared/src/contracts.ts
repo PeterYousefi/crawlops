@@ -41,7 +41,9 @@ export const createEvaluationSchema = z.object({
   expectedSchema,
   maxRetries: z.number().int().min(0).max(5).default(2),
   maxFirecrawlCalls: z.number().int().min(1).max(20).default(5),
-  timeoutMs: z.number().int().min(1000).max(120_000).default(30_000),
+  // Up to 180s to accommodate the AGENT (structured research) strategy, which
+  // is slower than SEARCH. SEARCH keeps its own smaller default.
+  timeoutMs: z.number().int().min(1000).max(180_000).default(30_000),
   /** Minimum number of usable sources for a run to be considered grounded. */
   minSources: z.number().int().min(0).max(50).default(1),
 });

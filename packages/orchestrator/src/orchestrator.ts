@@ -16,6 +16,7 @@ import {
   CrawlOpsError,
   FailureCategory,
   classifyError,
+  toPersistableCategory,
   createLogger,
   withTrace,
   type Logger,
@@ -153,8 +154,11 @@ export class Orchestrator {
           where: { id: attempt.id },
           data: {
             status: AttemptStatus.FAILED,
-            errorCategory: mapped.category,
-            errorMessage: mapped.message,
+            // Persist a DB-enum-safe category; keep the precise code in the
+            // message (e.g. "AGENT_EMPTY_RESULT: ..."). Cast: the value is always
+            // a valid DB enum member, but the shared union is wider.
+            errorCategory: toPersistableCategory(mapped.category) as never,
+            errorMessage: `${mapped.category}: ${mapped.message}`,
             finishedAt,
             durationMs: finishedAt.getTime() - attemptStarted.getTime(),
           },
@@ -262,7 +266,7 @@ export class Orchestrator {
       where: { id: runId },
       data: {
         status: RunStatus.FAILED,
-        errorCategory: error?.category ?? FailureCategory.UNKNOWN,
+        errorCategory: toPersistableCategory(error?.category ?? FailureCategory.UNKNOWN) as never,
         finishedAt,
         durationMs: run.startedAt ? finishedAt.getTime() - run.startedAt.getTime() : null,
         attemptCount,

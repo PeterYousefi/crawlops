@@ -69,6 +69,62 @@ describe('empty-body JSON POST tolerance', () => {
   });
 });
 
+describe('AGENT requires a schema', () => {
+  it('rejects creating an AGENT evaluation with no expectedSchema (400 AGENT_SCHEMA_REQUIRED)', async () => {
+    const ctx = stubContext();
+    const app = await buildApp(ctx);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/evaluations',
+      payload: {
+        name: 'no schema agent',
+        taskPrompt: 'compare things',
+        strategy: 'AGENT',
+        // no expectedSchema
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { error: { code: string } };
+    expect(body.error.code).toBe('AGENT_SCHEMA_REQUIRED');
+    await app.close();
+  });
+
+  it('allows creating a SEARCH evaluation with no schema', async () => {
+    const ctx = stubContext();
+    let created = false;
+    ctx.prisma = {
+      user: { upsert: async () => ({ id: 'u1' }) },
+      evaluation: {
+        create: async () => {
+          created = true;
+          return {
+            id: 'e1',
+            name: 'x',
+            taskPrompt: 'y',
+            startingUrls: [],
+            strategy: 'SEARCH',
+            expectedSchema: null,
+            maxRetries: 2,
+            maxFirecrawlCalls: 5,
+            timeoutMs: 30000,
+            minSources: 1,
+            createdAt: new Date(),
+          };
+        },
+      },
+    } as unknown as AppContext['prisma'];
+    const app = await buildApp(ctx);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/evaluations',
+      payload: { name: 'search ok', taskPrompt: 'find things', strategy: 'SEARCH' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(created).toBe(true);
+    await app.close();
+  });
+});
+
 describe('GET /api/ready', () => {
   it('returns 503 when the database is not configured', async () => {
     const app = await buildApp(stubContext());

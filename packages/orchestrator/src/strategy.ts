@@ -10,7 +10,7 @@
  * HOW:  `strategy.execute(context)` returns sources, output, and call count.
  */
 
-import type { ExecutionStrategy } from '@crawlops/shared';
+import { CrawlOpsError, FailureCategory, type ExecutionStrategy } from '@crawlops/shared';
 import { normalizeToJsonSchema } from '@crawlops/evaluation';
 import type { FirecrawlClient, NormalizedSource } from '@crawlops/firecrawl';
 
@@ -101,11 +101,26 @@ export class AgentStrategy implements Strategy {
       timeoutMs: context.timeoutMs,
     });
 
-    // The final output is exactly what Firecrawl returned (or null). We do NOT
-    // synthesize or fill any fields ourselves.
+    // A "completed" agent run with null/empty structured output is NOT a usable
+    // success. Treat it as a RETRYABLE error so the orchestrator retries; if
+    // every attempt is empty, the run fails with a clear AGENT_EMPTY_RESULT
+    // (never mislabelled INVALID_SCHEMA — there was no output to validate).
+    if (!result.completed || result.data == null) {
+      throw new CrawlOpsError({
+        category: FailureCategory.AGENT_EMPTY_RESULT,
+        message: !result.completed
+          ? 'Firecrawl Agent did not complete with a usable result.'
+          : 'Firecrawl Agent completed but returned empty structured output.',
+        retryable: true,
+      });
+    }
+
+    // The final output is exactly what Firecrawl returned. We do NOT synthesize
+    // or fill any fields ourselves. Sources are the real pages the agent fetched
+    // (from its execution trace), not arbitrary output fields.
     return {
       sources: result.sources,
-      output: result.completed ? (result.data ?? null) : null,
+      output: result.data,
       firecrawlCallCount: 1,
     };
   }

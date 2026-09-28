@@ -21,6 +21,10 @@ function messageFor(err: unknown): string {
 const inputClass =
   'w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/60 transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25 focus:outline-none aria-[invalid=true]:border-destructive/70';
 
+// Effective AGENT research timeout — must match the backend's agentTimeoutMs
+// floor so the UI is truthful about how long AGENT runs may take.
+const AGENT_TIMEOUT_MS = 180000;
+
 // A proper JSON Schema starter so strict types (e.g. boolean) are unambiguous.
 const JSON_SCHEMA_STARTER = `{
   "type": "object",
@@ -141,7 +145,12 @@ export function CreateEvaluationPage() {
   const errors = {
     name: !name.trim() ? 'Give the evaluation a name.' : name.length > 200 ? 'Keep the name under 200 characters.' : null,
     query: !taskPrompt.trim() ? 'Describe the research task.' : null,
-    schema: schema.trim() && !schemaState.ok ? schemaState.error : null,
+    schema:
+      schema.trim() && !schemaState.ok
+        ? schemaState.error
+        : strategy === 'AGENT' && !schema.trim()
+          ? 'AGENT produces structured output, so an expected schema is required.'
+          : null,
   };
   const hasErrors = Object.values(errors).some(Boolean);
   const show = (k: keyof typeof errors) => (touched ? errors[k] : null);
@@ -366,7 +375,13 @@ export function CreateEvaluationPage() {
                     <select
                       id="strategy"
                       value={strategy}
-                      onChange={(e) => setStrategy(e.target.value as CreateEvaluationInput['strategy'])}
+                      onChange={(e) => {
+                        const next = e.target.value as CreateEvaluationInput['strategy'];
+                        setStrategy(next);
+                        // Keep the timeout truthful: AGENT runs use the agent floor.
+                        if (next === 'AGENT') setTimeoutMs(AGENT_TIMEOUT_MS);
+                        else if (timeoutMs === AGENT_TIMEOUT_MS) setTimeoutMs(30000);
+                      }}
                       className={inputClass}
                     >
                       <option value="SEARCH">SEARCH — Fast retrieval, lower Firecrawl usage</option>
@@ -376,7 +391,8 @@ export function CreateEvaluationPage() {
                     {strategy === 'AGENT' ? (
                       <p className="text-[11px] text-muted-foreground">
                         Firecrawl researches sources and returns an object matching your expected
-                        output. Requires an expected output above.
+                        output. Requires an expected output above. Runs use a{' '}
+                        {AGENT_TIMEOUT_MS / 1000}s timeout (agent research is slower than search).
                       </p>
                     ) : null}
                   </div>
@@ -424,18 +440,26 @@ export function CreateEvaluationPage() {
                   </div>
                   <div className="space-y-1.5">
                     <label htmlFor="timeout" className="block text-xs font-medium">
-                      Timeout (ms)
+                      Timeout (ms){strategy === 'AGENT' ? ' — fixed for AGENT' : ''}
                     </label>
                     <input
                       id="timeout"
                       type="number"
                       min={1000}
-                      max={120000}
+                      max={AGENT_TIMEOUT_MS}
                       step={1000}
                       value={timeoutMs}
-                      onChange={(e) => setTimeoutMs(Math.max(1000, Math.min(120000, Number(e.target.value) || 1000)))}
-                      className={cn(inputClass, 'font-mono')}
+                      disabled={strategy === 'AGENT'}
+                      onChange={(e) =>
+                        setTimeoutMs(Math.max(1000, Math.min(120000, Number(e.target.value) || 1000)))
+                      }
+                      className={cn(inputClass, 'font-mono', strategy === 'AGENT' && 'opacity-60')}
                     />
+                    {strategy === 'AGENT' ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        AGENT uses a fixed {AGENT_TIMEOUT_MS / 1000}s research timeout.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -460,7 +484,8 @@ export function CreateEvaluationPage() {
                 </Link>
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || hasErrors}
+                  title={hasErrors ? 'Fix the highlighted fields to continue.' : undefined}
                   className="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}

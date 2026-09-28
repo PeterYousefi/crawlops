@@ -24,11 +24,17 @@ export interface MockConfig {
   searchResult?: Partial<SearchResult>;
   scrapeResult?: Partial<ScrapeResult>;
   agentExtractResult?: Partial<AgentExtractResult>;
+  /**
+   * A sequence of agentExtract results returned one-per-call (to test retry
+   * behavior, e.g. [empty, valid]). Takes precedence over agentExtractResult.
+   */
+  agentExtractSequence?: Array<Partial<AgentExtractResult>>;
   /** If set, calls reject with this error (to exercise failure handling). */
   throwOn?: { search?: CrawlOpsError; scrape?: CrawlOpsError; agentExtract?: CrawlOpsError };
 }
 
 export class MockFirecrawlClient implements FirecrawlClient {
+  private agentCallIndex = 0;
   constructor(private readonly config: MockConfig = {}) {}
 
   async search(query: string, _params: SearchParams = {}): Promise<SearchResult> {
@@ -66,22 +72,21 @@ export class MockFirecrawlClient implements FirecrawlClient {
 
   async agentExtract(_prompt: string, _params: AgentExtractParams): Promise<AgentExtractResult> {
     if (this.config.throwOn?.agentExtract) throw this.config.throwOn.agentExtract;
-    return {
+    const base: AgentExtractResult = {
       data: { example: 'mock structured output' },
       completed: true,
       sources: [
-        {
-          url: 'https://example.com/source',
-          title: null,
-          description: null,
-          rank: 1,
-          content: null,
-        },
+        { url: 'https://example.com/source', title: null, description: null, rank: 1, content: null },
       ],
       creditsUsed: 0,
       durationMs: 5,
-      ...this.config.agentExtractResult,
     };
+    if (this.config.agentExtractSequence && this.config.agentExtractSequence.length > 0) {
+      const i = Math.min(this.agentCallIndex, this.config.agentExtractSequence.length - 1);
+      this.agentCallIndex += 1;
+      return { ...base, ...this.config.agentExtractSequence[i] };
+    }
+    return { ...base, ...this.config.agentExtractResult };
   }
 
   async ping(): Promise<{ ok: boolean; message: string }> {

@@ -22,25 +22,26 @@ import type {
 } from './types.js';
 
 /**
- * Walk an arbitrary extracted object and collect any `sourceUrl` / `url` string
- * values, so we can record which sources the agent used. Best-effort; purely
- * derived from the real returned data (no fabrication).
+ * Is the agent's structured output effectively empty/unusable? A "completed"
+ * agent run with null/empty data is NOT a usable success.
  */
-function collectSourceUrls(value: unknown, acc: Set<string>, depth = 0): void {
-  if (depth > 6 || value == null) return;
-  if (Array.isArray(value)) {
-    for (const v of value) collectSourceUrls(v, acc, depth + 1);
-    return;
-  }
-  if (typeof value === 'object') {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if ((k === 'sourceUrl' || k === 'url' || k === 'source') && typeof v === 'string' && /^https?:\/\//.test(v)) {
-        acc.add(v);
-      } else {
-        collectSourceUrls(v, acc, depth + 1);
-      }
-    }
-  }
+export function isEmptyStructuredOutput(data: unknown): boolean {
+  if (data == null) return true;
+  if (typeof data === 'string') return data.trim().length === 0;
+  if (Array.isArray(data)) return data.length === 0;
+  if (typeof data === 'object') return Object.keys(data as object).length === 0;
+  return false;
+}
+
+/**
+ * Filter provenance URLs to real content pages: http(s), and not obvious asset
+ * noise (images, fonts, CDNs). Best-effort — keeps genuine sources, drops junk.
+ */
+export function isLikelyProvenanceUrl(url: string): boolean {
+  if (!/^https?:\/\//i.test(url)) return false;
+  if (/\.(png|jpe?g|gif|webp|svg|ico|css|js|woff2?|ttf|mp4|pdf)(\?|$)/i.test(url)) return false;
+  if (/(cdn|assets?|static|media|fonts?)\./i.test(url)) return false;
+  return true;
 }
 
 /** Rejects if the given promise does not settle within `ms`. */
@@ -212,7 +213,8 @@ export class FirecrawlAdapter implements FirecrawlClient {
 
   async agentExtract(prompt: string, params: AgentExtractParams): Promise<AgentExtractResult> {
     const started = Date.now();
-    const timeoutSeconds = Math.ceil((params.timeoutMs ?? this.defaultTimeoutMs) / 1000);
+    const timeoutMs = params.timeoutMs ?? this.defaultTimeoutMs;
+    const timeoutSeconds = Math.ceil(timeoutMs / 1000);
     try {
       const req: Record<string, unknown> = {
         prompt,
@@ -223,26 +225,89 @@ export class FirecrawlAdapter implements FirecrawlClient {
       if (params.maxCredits != null) req.maxCredits = params.maxCredits;
       if (params.urls && params.urls.length > 0) req.urls = params.urls;
 
-      const res = await this.client.agent(req as never);
-      const completed = res.status === 'completed';
-      const urls = new Set<string>();
-      collectSourceUrls(res.data, urls);
-      const sources: NormalizedSource[] = [...urls].map((url, i) => ({
+      // Start the job so we get a jobId, then poll to completion. This lets us
+      // fetch the execution trace afterwards for REAL source provenance.
+      const startRes = await this.client.startAgent(req as never);
+      const jobId = startRes.id;
+
+      const deadline = started + timeoutMs;
+      let status: { status?: string; data?: unknown; creditsUsed?: number } = {};
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 3000));
+        status = (await this.client.getAgentStatus(jobId)) as typeof status;
+        if (status.status && status.status !== 'processing') break;
+      }
+      const completed = status.status === 'completed';
+
+      // Provenance: pull the URLs the agent actually fetched from its trace.
+      const sources = await this.collectAgentSources(jobId);
+
+      const data = status.data ?? null;
+      return {
+        data: isEmptyStructuredOutput(data) ? null : data,
+        completed,
+        sources,
+        creditsUsed: typeof status.creditsUsed === 'number' ? status.creditsUsed : null,
+        durationMs: Date.now() - started,
+      };
+    } catch (error) {
+      throw mapFirecrawlError(error);
+    }
+  }
+
+  /**
+   * Fetch the agent's execution trace and derive REAL source provenance from
+   * the tools it invoked: the pages it scraped (tool_call params.url/urls) and,
+   * as a fallback, URLs surfaced in tool results (search hits). Best-effort —
+   * a trace failure must not fail the run, but yields zero sources.
+   */
+  private async collectAgentSources(jobId: string): Promise<NormalizedSource[]> {
+    try {
+      const trace = (await this.client.getAgentTrace(jobId)) as {
+        events?: Array<{ type?: string; parameters?: unknown; result?: unknown }>;
+      };
+      const events = trace.events ?? [];
+      const fetched = new Set<string>(); // pages the agent chose to scrape
+      const seen = new Set<string>(); // any page URL found in results (fallback)
+
+      const grabInto = (target: Set<string>, v: unknown, depth = 0): void => {
+        if (depth > 8 || v == null) return;
+        if (typeof v === 'string') {
+          const m = v.match(/https?:\/\/[^\s"')<>]+/g);
+          if (m) for (const u of m) target.add(u);
+          return;
+        }
+        if (Array.isArray(v)) {
+          for (const x of v) grabInto(target, x, depth + 1);
+          return;
+        }
+        if (typeof v === 'object') {
+          for (const x of Object.values(v as Record<string, unknown>)) grabInto(target, x, depth + 1);
+        }
+      };
+
+      for (const e of events) {
+        if (e.type === 'tool_call.started') {
+          const p = (e.parameters ?? {}) as { url?: unknown; urls?: unknown };
+          if (typeof p.url === 'string') grabInto(fetched, p.url);
+          if (Array.isArray(p.urls)) grabInto(fetched, p.urls);
+        } else if (e.type === 'tool_call.finished') {
+          grabInto(seen, e.result);
+        }
+      }
+
+      // Prefer explicitly-fetched pages; fall back to result URLs if none.
+      const chosen = fetched.size > 0 ? [...fetched] : [...seen];
+      const pages = chosen.filter(isLikelyProvenanceUrl);
+      return pages.map((url, i) => ({
         url,
         title: null,
         description: null,
         rank: i + 1,
         content: null,
       }));
-      return {
-        data: res.data ?? null,
-        completed,
-        sources,
-        creditsUsed: typeof res.creditsUsed === 'number' ? res.creditsUsed : null,
-        durationMs: Date.now() - started,
-      };
-    } catch (error) {
-      throw mapFirecrawlError(error);
+    } catch {
+      return [];
     }
   }
 
