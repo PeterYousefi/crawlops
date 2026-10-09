@@ -24,6 +24,17 @@ function baseInput(overrides: Partial<EvaluationInput> = {}): EvaluationInput {
 }
 
 describe('DeterministicEvaluator', () => {
+  it('validates const-only JSON Schemas without treating them as examples', async () => {
+    const expectedSchema = { const: { price: '$20' } };
+    const matching = await evaluator.evaluate(baseInput({ expectedSchema }));
+    const different = await evaluator.evaluate(
+      baseInput({ expectedSchema, output: { price: '$30' } }),
+    );
+    expect(matching.status).toBe(RunStatus.SUCCESS);
+    expect(different.status).toBe(RunStatus.FAILED);
+    expect(different.checks.find((c) => c.id === 'schema_validation')?.passed).toBe(false);
+  });
+
   it('accepts null fields and array items in a pasted example', async () => {
     const result = await evaluator.evaluate(
       baseInput({
