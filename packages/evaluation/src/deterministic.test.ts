@@ -24,6 +24,28 @@ function baseInput(overrides: Partial<EvaluationInput> = {}): EvaluationInput {
 }
 
 describe('DeterministicEvaluator', () => {
+  it('accepts null fields and array items in a pasted example', async () => {
+    const result = await evaluator.evaluate(
+      baseInput({
+        expectedSchema: { price: '$20', discount: null, unavailable: [null] },
+        output: { price: '$30', discount: null, unavailable: [null, null] },
+      }),
+    );
+    expect(result.status).toBe(RunStatus.SUCCESS);
+    expect(result.checks.find((c) => c.id === 'schema_validation')?.passed).toBe(true);
+  });
+
+  it('rejects strings in fields inferred as null from a pasted example', async () => {
+    const result = await evaluator.evaluate(
+      baseInput({
+        expectedSchema: { price: '$20', discount: null },
+        output: { price: '$20', discount: 'null' },
+      }),
+    );
+    expect(result.status).toBe(RunStatus.FAILED);
+    expect(result.checks.find((c) => c.id === 'schema_validation')?.passed).toBe(false);
+  });
+
   it('returns SUCCESS when all checks pass', async () => {
     const result = await evaluator.evaluate(baseInput());
     expect(result.status).toBe(RunStatus.SUCCESS);

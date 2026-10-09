@@ -58,6 +58,7 @@ function looksLikeJsonSchema(obj: Record<string, unknown>): boolean {
  * If the input already looks like a real JSON Schema, it is returned unchanged.
  */
 export function normalizeToJsonSchema(input: unknown): Record<string, unknown> {
+  if (input === null) return { type: 'null' };
   if (Array.isArray(input)) {
     return input.length > 0
       ? { type: 'array', items: normalizeToJsonSchema(input[0]) }
