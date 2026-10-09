@@ -43,6 +43,7 @@ function looksLikeJsonSchema(obj: Record<string, unknown>): boolean {
     'oneOf' in obj ||
     'allOf' in obj ||
     '$ref' in obj ||
+    'const' in obj ||
     'enum' in obj
   );
 }
